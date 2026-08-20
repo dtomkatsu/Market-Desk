@@ -40,6 +40,7 @@ from .volume import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "docs" / "data"
+NOTES_DIR = REPO_ROOT / "analysis"
 
 # Trading-session counts for the standard lookbacks.
 SESSIONS = {"1w": 5, "1m": 21, "3m": 63, "6m": 126, "1y": 252}
@@ -301,6 +302,28 @@ def build_index_row(symbol: str, result: FetchResult,
     return row
 
 
+def collect_notes(notes_dir: Optional[Path] = None, limit: int = 60) -> list[dict]:
+    """Read the committed analysis notes for the dashboard's Analysis tab.
+
+    Notes are markdown named ``YYYY-MM-DD.md``. They are small and there is
+    at most one per trading day, so the whole recent history ships inline
+    rather than as one fetch per note — the tab then renders instantly and
+    works offline.
+    """
+    notes_dir = Path(notes_dir) if notes_dir else NOTES_DIR
+    if not notes_dir.exists():
+        return []
+    out: list[dict] = []
+    for path in sorted(notes_dir.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md"),
+                       reverse=True)[:limit]:
+        try:
+            body = path.read_text()
+        except OSError:
+            continue
+        out.append({"date": path.stem, "body": body})
+    return out
+
+
 def write_all(universe: Universe, result: FetchResult,
               valuations: dict[str, ValuationView],
               forecasts: dict[str, SymbolForecast],
@@ -327,6 +350,11 @@ def write_all(universe: Universe, result: FetchResult,
             json.dumps(payload, separators=(",", ":"))
         )
 
+    notes = collect_notes()
+    (data_dir / "notes.json").write_text(
+        json.dumps({"notes": notes}, separators=(",", ":"))
+    )
+
     index = {
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "fetch_date": result.fetch_date,
@@ -346,6 +374,7 @@ def write_all(universe: Universe, result: FetchResult,
         "symbols_ok": len(result.bars),
         "symbols_failed": result.failures,
         "forecasts_ok": sum(1 for f in forecasts.values() if f.horizons),
+        "notes_count": len(notes),
         "forecaster_pin": forecaster_pin,
         "factor_caveat": UNIVERSE_CAVEAT,
         "macro_overlay": {

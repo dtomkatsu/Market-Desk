@@ -111,3 +111,33 @@ def test_tiers_only_list_symbols_that_actually_fetched(tmp_path, universe):
     core = next(t for t in index["tiers"] if t["key"] == "core")
     # A symbol that failed must not leave a dead row in the sidebar.
     assert core["symbols"] == []
+
+
+# ---------------- analysis notes ----------------
+
+def test_collect_notes_reads_dated_markdown(tmp_path):
+    from market_desk.build import collect_notes
+    (tmp_path / "2026-08-17.md").write_text("# older\n")
+    (tmp_path / "2026-08-19.md").write_text("# newest\n")
+    (tmp_path / "2026-08-18.md").write_text("# middle\n")
+    (tmp_path / "README.md").write_text("not a note")
+    (tmp_path / "notes.txt").write_text("also not a note")
+
+    notes = collect_notes(tmp_path)
+    # Newest first, and only YYYY-MM-DD.md files.
+    assert [n["date"] for n in notes] == ["2026-08-19", "2026-08-18", "2026-08-17"]
+    assert notes[0]["body"] == "# newest\n"
+
+
+def test_collect_notes_handles_a_missing_directory(tmp_path):
+    from market_desk.build import collect_notes
+    assert collect_notes(tmp_path / "nope") == []
+
+
+def test_write_all_emits_notes_json(tmp_path, fixture_result, universe):
+    import json as _json
+    from market_desk.build import write_all
+    meta = write_all(universe, fixture_result, {}, {}, MacroOverlay(), data_dir=tmp_path)
+    payload = _json.loads((tmp_path / "notes.json").read_text())
+    assert "notes" in payload
+    assert meta["notes_count"] == len(payload["notes"])

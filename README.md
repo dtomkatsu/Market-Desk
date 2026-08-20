@@ -62,9 +62,34 @@ cross-sectional within this small watchlist, not the market-wide cross-section
 the academic evidence is built on, and composites are withheld entirely below
 five companies. Descriptive screens, not signals.
 
-**Daily note.** Claude reads the rebuilt payloads each trading day and writes
-`analysis/YYYY-MM-DD.md`, leading with volume and valuation and saying what
-changed since the previous note.
+**Claude, two ways.**
+
+*Daily notes* — Claude reads the rebuilt payloads each trading day and writes
+`analysis/YYYY-MM-DD.md`, leading with volume and valuation, then factors, then
+what changed. The Analysis tab in the dashboard renders them.
+
+*Ask, on demand* — an Ask panel on every chart page, with preset questions
+(factor read, volume check, valuation vs peers) or anything you type. It is
+answered by a **local companion server**, not by the published site:
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token)   # once
+python scripts/desk_server.py                          # http://127.0.0.1:8793
+```
+
+That server hosts the same dashboard *and* an `/api/ask` endpoint that shells
+out to the Claude Code CLI, so questions bill against your existing
+subscription rather than a separate API key — and it is the same secret the
+daily notes need, so one token turns on both. It binds to `127.0.0.1` only.
+
+The reason this is local rather than a button on the public site: GitHub Pages
+is static and world-readable, so it has nowhere to keep a credential. Anything
+the page could call, anyone could call, and they would be spending your tokens.
+On the published site the Ask panel explains this instead of failing blank.
+
+The model only ever sees the committed payloads — the same numbers on screen —
+and is instructed to refuse to invent one, to name the peer group behind every
+multiple, and to give analysis rather than advice.
 
 ## How it connects to Census-Forecaster
 
@@ -153,6 +178,7 @@ src/market_desk/
   macro.py                the Hawaii lead-signal overlay
   build.py                assemble docs/data/*.json
 scripts/refresh.py        the entrypoint the daily workflow runs
+scripts/desk_server.py    local server: dashboard + /api/ask (Claude)
 scripts/import_yahoo_watchlist.py
 docs/                     the GitHub Pages front end
 analysis/                 Claude's daily notes
@@ -187,7 +213,8 @@ refresh, Claude's note, commit, deploy. Market holidays still fire the cron; the
 workflow notices the latest session already has a note and skips the analysis
 rather than trying to encode the NYSE calendar.
 
-It needs one secret, `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`. These
+It needs one secret, `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token` —
+the same token the local Ask server uses. These
 last a year and cannot be renewed non-interactively, so a `token-expiry` job
 opens a reminder issue 30 days out. Update `TOKEN_ISSUED` in the workflow
 whenever you regenerate it.

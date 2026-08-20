@@ -42,6 +42,15 @@
   `core.hooksPath` pre-commit hook rewrites both query strings to a fresh
   timestamp on every commit that touches them. Editing them by hand just
   fights the hook.
+- **No credential ever reaches `docs/`.** The published site is static and
+  world-readable. Claude answers come from `scripts/desk_server.py`, which
+  binds `127.0.0.1` only and shells out to the `claude` CLI. Never "simplify"
+  this by putting an API key in the front end or by binding `0.0.0.0` — the
+  endpoint runs a subprocess on the user's behalf.
+- **Model and note text is untrusted input to the page.** `markdown()` in
+  `app.js` escapes the whole string *before* introducing any markup, and only
+  then applies its small subset. Keep that order; never switch to a parser
+  that emits raw HTML.
 - **Tests must pass before committing.** `python -m pytest tests/ -q`.
 
 ## Gotchas already paid for
@@ -74,6 +83,9 @@
 ## Stack
 
 - Python 3.12, stdlib-only transforms (no pandas outside `fetch.py`), pytest.
+- Local companion server (`scripts/desk_server.py`) is **stdlib-only on
+  purpose** — it runs under system `python3` with no venv, so the launch
+  config and a fresh clone both work. Do not add imports to it.
 - Front end: vanilla JS + vendored KLineChart 9.8.12 (Apache-2.0) — the
   open-source TradingView-style chart: candle + indicator panes, drawing
   overlays (trend lines, channels, fibs), magnet snapping.

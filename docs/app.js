@@ -32,6 +32,10 @@ const state = {
   screenSort: { key: 'symbol', dir: 1 },
   factorSort: { key: 'mom_rank', dir: -1 },
   filter: '',
+  notes: [],
+  activeNote: null,
+  askReady: false,
+  askBusy: false,
 };
 
 const chartState = {
@@ -92,12 +96,14 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
 
 async function boot() {
   try {
-    const [index, meta] = await Promise.all([
+    const [index, meta, notes] = await Promise.all([
       fetch('data/index.json?t=' + Date.now()).then((r) => r.json()),
       fetch('data/meta.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
+      fetch('data/notes.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
     ]);
     state.index = index;
     state.meta = meta;
+    state.notes = (notes && notes.notes) || [];
     state.rows = index.rows || [];
     state.rows.forEach((r) => state.bySymbol.set(r.symbol, r));
   } catch (err) {
@@ -114,7 +120,9 @@ async function boot() {
   renderSidebar();
   renderScreen();
   renderFactors();
+  renderNotes();
   wireControls();
+  probeAsk();
 
   const wanted = new URLSearchParams(location.search).get('symbol');
   const first = (wanted && state.bySymbol.has(wanted.toUpperCase()))
@@ -571,6 +579,7 @@ function renderSymbolHead() {
   el('sym-name').textContent = p.name || '';
   const tier = (state.index.tiers || []).find((t) => t.key === p.tier);
   el('sym-tier').textContent = tier ? tier.label : (p.tier || '');
+  el('ask-symbol').textContent = p.symbol;
   el('sym-price').textContent = fmt.price(row.last);
   const change = el('sym-change');
   change.textContent = `${fmt.signedPct(row.change_1d)} today`;
@@ -820,11 +829,185 @@ function renderFactors() {
   });
 }
 
+/* ---------------- minimal markdown ----------------
+ * Claude's answers and the committed notes are markdown. Rather than ship a
+ * parser, this renders the small subset those two actually use. Everything is
+ * HTML-escaped BEFORE any markup is introduced, so note and model text can
+ * never inject markup into the page.
+ */
+
+function markdown(src) {
+  const lines = esc(src).split('\n');
+  const out = [];
+  let inList = null;      // 'ul' | 'ol' | null
+
+  const closeList = () => { if (inList) { out.push(`</${inList}>`); inList = null; } };
+  const inline = (t) => t
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+
+    if (heading) {
+      closeList();
+      const level = Math.min(heading[1].length, 3);
+      out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+    } else if (bullet) {
+      if (inList !== 'ul') { closeList(); out.push('<ul>'); inList = 'ul'; }
+      out.push(`<li>${inline(bullet[1])}</li>`);
+    } else if (numbered) {
+      if (inList !== 'ol') { closeList(); out.push('<ol>'); inList = 'ol'; }
+      out.push(`<li>${inline(numbered[1])}</li>`);
+    } else if (!line.trim()) {
+      closeList();
+    } else {
+      closeList();
+      out.push(`<p>${inline(line)}</p>`);
+    }
+  }
+  closeList();
+  return out.join('');
+}
+
+/* ---------------- ask Claude ---------------- */
+
+/** Detect the local companion server. The published static site has none. */
+async function probeAsk() {
+  const status = el('ask-status');
+  const answer = el('ask-answer');
+  let health = null;
+
+  try {
+    health = await fetch('api/health', { cache: 'no-store' }).then((r) => {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    });
+  } catch (err) {
+    health = null;              // no companion server answering at all
+  }
+
+  state.askReady = !!(health && health.claude);
+  setAskEnabled(state.askReady);
+
+  if (state.askReady) {
+    status.textContent = `ready · ${health.model || 'claude'}`;
+    status.className = 'ask-status is-ready';
+    answer.hidden = true;
+    return;
+  }
+
+  status.className = 'ask-status is-off';
+  answer.hidden = false;
+
+  // Two genuinely different failures with two different fixes. Telling
+  // someone to start a server that is already running wastes their time.
+  if (!health) {
+    status.textContent = 'local server not running';
+    answer.innerHTML =
+      '<p>Questions are answered by a companion server on your own machine. The published ' +
+      'site is static and world-readable, so it has nowhere to keep a credential — anything ' +
+      'it could call, anyone could call. Start the server with:</p>' +
+      '<p><code>python scripts/desk_server.py</code></p>' +
+      '<p class="ask-foot">It serves this same dashboard at <code>127.0.0.1:8793</code> and ' +
+      'answers through the Claude Code CLI, so questions bill against your existing ' +
+      'subscription rather than a separate API key.</p>';
+  } else {
+    status.textContent = 'Claude not authenticated';
+    answer.innerHTML =
+      '<p>The companion server is running, but it cannot reach Claude:</p>' +
+      `<p class="err">${esc(health.reason || 'unknown reason')}</p>` +
+      '<p>Run <code>claude setup-token</code>, then restart the server with the token in ' +
+      'the environment:</p>' +
+      '<p><code>export CLAUDE_CODE_OAUTH_TOKEN=&lt;token&gt;</code><br>' +
+      '<code>python scripts/desk_server.py</code></p>' +
+      '<p class="ask-foot">That is the same secret the daily analysis notes need as a ' +
+      'repository secret, so one token turns on both.</p>';
+  }
+}
+
+function setAskEnabled(on) {
+  el('ask-input').disabled = !on;
+  el('ask-send').disabled = !on || state.askBusy;
+  el('ask-presets').querySelectorAll('button').forEach((b) => { b.disabled = !on || state.askBusy; });
+}
+
+async function askClaude(question) {
+  if (!state.askReady || state.askBusy || !question.trim()) return;
+  state.askBusy = true;
+  setAskEnabled(true);
+
+  const answer = el('ask-answer');
+  answer.hidden = false;
+  answer.innerHTML = '<p class="thinking">Thinking…</p>';
+
+  try {
+    const res = await fetch('api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, symbol: state.currentSymbol }),
+    });
+    const data = await res.json();
+    if (data.answer) {
+      answer.innerHTML = markdown(data.answer) +
+        `<p class="ask-foot">${esc(data.model || 'claude')} · answered from the committed ` +
+        `payloads for ${esc(data.symbol || 'the board')}. Analysis, not advice.</p>`;
+    } else {
+      answer.innerHTML = `<p class="err">${esc(data.error || 'No answer returned.')}</p>`;
+    }
+  } catch (err) {
+    answer.innerHTML = `<p class="err">Could not reach the local server.</p>`;
+  } finally {
+    state.askBusy = false;
+    setAskEnabled(state.askReady);
+  }
+}
+
+/* ---------------- analysis notes ---------------- */
+
+function renderNotes() {
+  const index = el('notes-index');
+  const body = el('note-body');
+
+  if (!state.notes.length) {
+    index.innerHTML = '';
+    body.innerHTML =
+      '<h1>No notes yet</h1>' +
+      '<p>The daily refresh writes one note per trading session into <code>analysis/</code>, ' +
+      'but only when a <code>CLAUDE_CODE_OAUTH_TOKEN</code> secret is set on the repository. ' +
+      'Until then the workflow publishes the dashboard and skips the note.</p>' +
+      '<p>To turn them on: run <code>claude setup-token</code>, add the value as a repository ' +
+      'secret named <code>CLAUDE_CODE_OAUTH_TOKEN</code>, and set <code>TOKEN_ISSUED</code> in ' +
+      '<code>.github/workflows/refresh.yml</code> to today.</p>';
+    return;
+  }
+
+  index.innerHTML = state.notes.map((n) =>
+    `<button data-date="${esc(n.date)}">${esc(n.date)}</button>`).join('');
+  index.querySelectorAll('button').forEach((b) => {
+    b.addEventListener('click', () => showNote(b.dataset.date));
+  });
+  showNote(state.activeNote || state.notes[0].date);
+}
+
+function showNote(date) {
+  const note = state.notes.find((n) => n.date === date);
+  if (!note) return;
+  state.activeNote = date;
+  el('note-body').innerHTML = markdown(note.body);
+  el('notes-index').querySelectorAll('button').forEach((b) =>
+    b.classList.toggle('is-active', b.dataset.date === date));
+}
+
 /* ---------------- controls ---------------- */
 
 function switchView(view) {
   document.querySelectorAll('.view-tab').forEach((b) => b.classList.toggle('is-active', b.dataset.view === view));
-  for (const id of ['chart', 'screen', 'factors']) {
+  for (const id of ['chart', 'screen', 'factors', 'analysis']) {
     el('view-' + id).classList.toggle('is-active', id === view);
   }
   if (view === 'chart' && chartState.chart) {
@@ -895,6 +1078,27 @@ function wireControls() {
       else state.factorSort = { key, dir: key === 'symbol' ? 1 : -1 };
       renderFactors();
     });
+  });
+
+  el('ask-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = el('ask-input');
+    askClaude(input.value);
+  });
+
+  el('ask-input').addEventListener('keydown', (e) => {
+    // Enter sends; Shift+Enter is a newline — the convention for a chat box.
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      askClaude(e.target.value);
+    }
+  });
+
+  el('ask-presets').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    el('ask-input').value = b.dataset.q;
+    askClaude(b.dataset.q);
   });
 
   el('about-btn').addEventListener('click', () => {

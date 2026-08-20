@@ -6,7 +6,7 @@
 <title>Market Desk</title>
 <meta name="description" content="Stock tracking dashboard — price, valuation, volume, and factor analytics.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
-<link rel="stylesheet" href="styles.css?v=20260819165534">
+<link rel="stylesheet" href="styles.css?v=20260819170735">
 <script src="vendor/klinecharts.min.js"></script>
 </head>
 <body>
@@ -20,6 +20,7 @@
     <button class="view-tab is-active" data-view="chart" role="tab">Chart</button>
     <button class="view-tab" data-view="screen" role="tab">Screen</button>
     <button class="view-tab" data-view="factors" role="tab">Factors</button>
+    <button class="view-tab" data-view="analysis" role="tab">Analysis</button>
   </nav>
   <div class="stamp">
     <span id="stamp-date">loading…</span>
@@ -110,6 +111,26 @@
       </div>
       <div id="chart" class="chart-klc"></div>
     </div>
+
+    <section class="ask" id="ask-panel">
+      <div class="ask-head">
+        <h3>Ask Claude about <span id="ask-symbol">this symbol</span></h3>
+        <span id="ask-status" class="ask-status"></span>
+      </div>
+      <div class="ask-presets" id="ask-presets">
+        <button data-q="Walk me through this symbol's factor standing — momentum, value and quality — and say what the combination does and does not support.">Factor read</button>
+        <button data-q="Is the recent price move backed by volume? Use RVOL, the volume trend and the divergence verdict, and say what would change the read.">Volume check</button>
+        <button data-q="How does this symbol's valuation compare with its peer group, and what would make that comparison misleading?">Valuation vs peers</button>
+        <button data-q="What is the single most important caveat someone reading this dashboard page should keep in mind about this symbol?">Biggest caveat</button>
+        <button data-q="Compare this symbol against the rest of the tracked universe on momentum, value and quality. Where does it actually stand out?">Vs the board</button>
+      </div>
+      <form class="ask-form" id="ask-form">
+        <textarea id="ask-input" rows="2" placeholder="Ask anything about the data on this page…"
+                  maxlength="2000"></textarea>
+        <button type="submit" class="primary" id="ask-send">Ask</button>
+      </form>
+      <div class="ask-answer" id="ask-answer" hidden></div>
+    </section>
 
     <div class="cards">
       <article class="card" id="card-valuation">
@@ -211,6 +232,18 @@
     </div>
   </section>
 
+  <!-- Analysis view -->
+  <section id="view-analysis" class="view">
+    <div class="screen-head">
+      <h2>Analysis notes</h2>
+      <p class="muted">Written by Claude after each trading session and committed to the repo. Leads with volume and valuation, then factors, then what changed.</p>
+    </div>
+    <div class="notes-layout">
+      <nav class="notes-index" id="notes-index"></nav>
+      <article class="note-body" id="note-body"></article>
+    </div>
+  </section>
+
 </main>
 
 <dialog id="about">
@@ -223,6 +256,6 @@
   <p><strong>Tracker context, not trading advice.</strong> Nothing here is a recommendation to buy or sell any security. Factor scores are descriptive screens within this small watchlist, not market factor exposures. Figures come from Yahoo Finance via yfinance and can be wrong, stale, or missing.</p>
 </footer>
 
-<script src="app.js?v=20260819165534"></script>
+<script src="app.js?v=20260819170735"></script>
 </body>
 </html>

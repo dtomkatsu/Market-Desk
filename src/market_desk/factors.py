@@ -139,6 +139,20 @@ class FactorView:
     reversal_tension: bool = False              # last month fought the 12-1 signal
     notes: tuple[str, ...] = ()
 
+    # --- benchmark-relative standing (S&P 500 cross-section) ---
+    # Populated when a benchmark population is available. These are the
+    # statistically meaningful numbers; the watchlist-relative scores above
+    # are retained because they are what earlier history was recorded against.
+    bench_momentum_rank: Optional[float] = None
+    bench_value_score: Optional[float] = None
+    bench_quality_score: Optional[float] = None
+    bench_value_population: Optional[str] = None     # sector name, or "S&P 500"
+    bench_quality_population: Optional[str] = None
+    bench_value_n: Optional[int] = None
+    bench_quality_n: Optional[int] = None
+    bench_universe_n: Optional[int] = None
+    bench_value_trap: bool = False
+
 
 def _pct_rank(value: Optional[float], population: list[float]) -> Optional[float]:
     """Fraction of the population strictly below ``value``, midpoint-adjusted.
@@ -186,6 +200,65 @@ def _earnings_yield(f: Fundamentals) -> Optional[float]:
     if f.trailing_pe is None or f.trailing_pe <= 0:
         return None
     return 1.0 / f.trailing_pe
+
+
+def apply_benchmark(views: dict[str, FactorView],
+                    fundamentals: dict[str, Fundamentals],
+                    ranker) -> None:
+    """Add benchmark-relative standing to already-built views, in place.
+
+    Momentum ranks against the whole index; value and quality rank within
+    sector, because raw valuation and profitability ratios are dominated by
+    industry effects — a cross-sector value rank partly measures sector
+    membership rather than cheapness.
+    """
+    from .benchmark import QUALITY_ATTRS, VALUE_ATTRS
+
+    for symbol, view in views.items():
+        f = fundamentals.get(symbol)
+        if f is None or view.is_fund:
+            continue
+        sector = f.sector
+        view.bench_universe_n = ranker.n
+
+        view.bench_momentum_rank = ranker.rank_universe(
+            view.momentum.mom_12_1, "momentum").percentile
+
+        value_inputs = {
+            "ebitda_yield": _ebitda_yield(f),
+            "fcf_yield": _fcf_yield(f),
+            "earnings_yield": _earnings_yield(f),
+        }
+        score, used, label, n = ranker.composite_sector(value_inputs, sector)
+        view.bench_value_score = score
+        view.bench_value_population = label
+        view.bench_value_n = n
+
+        quality_inputs = {
+            "roe": f.return_on_equity,
+            "roa": f.return_on_assets,
+            "operating_margin": f.operating_margin,
+            "low_leverage": (-f.debt_to_equity if f.debt_to_equity is not None else None),
+        }
+        qscore, qused, qlabel, qn = ranker.composite_sector(quality_inputs, sector)
+        view.bench_quality_score = qscore
+        view.bench_quality_population = qlabel
+        view.bench_quality_n = qn
+
+        # The trap flag is recomputed against the benchmark, and the
+        # single-metric guard still applies. Ranking within sector removes
+        # the artifact that previously forced a caveat onto every bank:
+        # low ROA and high leverage are normal for the business model, and a
+        # within-sector quality rank measures a bank against other banks.
+        if (score is not None and qscore is not None
+                and score >= 2 / 3 and qscore <= 1 / 3
+                and len(used) >= 2):
+            view.bench_value_trap = True
+            note = (f"Benchmark value trap: cheap relative to {label} peers "
+                    f"(n={n}) while in the bottom third on quality. Measured "
+                    "within sector, so this is not the "
+                    "banks-look-unprofitable artifact.")
+            view.notes = view.notes + (note,)
 
 
 def build_factor_views(

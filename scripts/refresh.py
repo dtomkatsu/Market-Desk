@@ -18,7 +18,10 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from market_desk.build import DATA_DIR, write_all            # noqa: E402
 from market_desk.config import load_universe                 # noqa: E402
-from market_desk.factors import build_factor_views           # noqa: E402
+from market_desk.benchmark import (                          # noqa: E402
+    BenchmarkRanker, decile_breakpoints, get_population,
+)
+from market_desk.factors import apply_benchmark, build_factor_views  # noqa: E402
 from market_desk.history import (                            # noqa: E402
     backfill_momentum, load_history, series_by_symbol, snapshot_today, write_history,
 )
@@ -55,6 +58,10 @@ def main(argv=None) -> int:
                     help="skip the Census-Forecaster forecast leg")
     ap.add_argument("--period", help="override history_period from the config")
     ap.add_argument("--data-dir", help="write payloads somewhere other than docs/data")
+    ap.add_argument("--no-benchmark", action="store_true",
+                    help="skip the S&P 500 cross-section (percentiles stay watchlist-relative)")
+    ap.add_argument("--force-benchmark", action="store_true",
+                    help="refetch the benchmark even if the snapshot is current")
     args = ap.parse_args(argv)
 
     universe = load_universe()
@@ -85,13 +92,33 @@ def main(argv=None) -> int:
     ranked = sum(1 for v in factor_views.values() if v.momentum_rank is not None)
     print(f"factors: {ranked} companies in the cross-section")
 
+    # Benchmark cross-section: the population percentiles are measured
+    # against. Ranking a holding against ~26 watchlist names produces a number
+    # that moves when other watchlist names have an ordinary week; the S&P 500
+    # is a population large enough for the rank to mean something.
+    session = max((bars[-1].date for bars in result.bars.values()),
+                  default=result.fetch_date)
+    benchmark = None
+    if args.no_benchmark:
+        print("benchmark: skipped (--no-benchmark)")
+    else:
+        population = get_population(session=session, force=args.force_benchmark)
+        if population.available:
+            ranker = BenchmarkRanker(population)
+            apply_benchmark(factor_views, result.fundamentals, ranker)
+            ranked = sum(1 for v in factor_views.values()
+                         if v.bench_momentum_rank is not None)
+            print(f"benchmark: {ranker.n} constituents, {ranked} tracked names ranked")
+            benchmark = (population, ranker)
+        else:
+            print(f"::warning::benchmark unavailable ({population.error}); "
+                  "percentiles remain watchlist-relative")
+
     # Factor history. Momentum is reconstructed from prices (no look-ahead:
     # the window at date T uses only bars up to T); value and quality only
     # accumulate forward, because Yahoo publishes no history for them and
     # rebuilding from restated statements would leak information that did
     # not exist at the time.
-    session = max((bars[-1].date for bars in result.bars.values()),
-                  default=result.fetch_date)
     existing = load_history()
     history_rows = list(existing)
     if not any(r.source == "backfill" for r in existing):
@@ -110,6 +137,7 @@ def main(argv=None) -> int:
         universe, result, valuations, forecasts, overlay,
         factor_views=factor_views,
         history=series_by_symbol(load_history()),
+        benchmark=benchmark,
         forecaster_pin=forecaster_pin(),
         data_dir=Path(args.data_dir) if args.data_dir else None,
     )

@@ -201,14 +201,15 @@
     <div class="screen-head">
       <h2>Factors</h2>
       <p class="muted" id="factor-caveat"></p>
+      <p class="muted" id="bench-note"></p>
     </div>
     <div class="table-wrap">
       <table id="factor-table">
         <thead>
           <tr>
             <th data-key="symbol" class="sticky-col" rowspan="2">Symbol</th>
-            <th colspan="4" class="group">Momentum <span class="gnote">formation skips the last month</span></th>
-            <th colspan="4" class="group">Value <span class="gnote">yields — higher = cheaper</span></th>
+            <th colspan="5" class="group">Momentum <span class="gnote">formation skips the last month</span></th>
+            <th colspan="5" class="group">Value <span class="gnote">yields — higher = cheaper</span></th>
             <th colspan="5" class="group">Quality</th>
             <th rowspan="2">Flags</th>
           </tr>
@@ -216,11 +217,13 @@
             <th data-key="mom_12_1" class="num">12-1</th>
             <th data-key="mom_6_1" class="num">6-1</th>
             <th data-key="ret_1m" class="num" title="The skipped month — the mean-reversion window, not part of the signal">1M ⚠</th>
-            <th data-key="mom_rank" class="num">Rank</th>
+            <th data-key="mom_rank" class="num" title="Watchlist-relative">Rank</th>
+            <th data-key="bench_mom_rank" class="num" title="Ranked against the whole S&P 500">S&amp;P</th>
             <th data-key="ev_ebitda" class="num">EV/EBITDA</th>
             <th data-key="fcf_yield" class="num">FCF yld</th>
             <th data-key="earnings_yield" class="num">Earn yld</th>
-            <th data-key="value_score" class="num">Score</th>
+            <th data-key="value_score" class="num" title="Watchlist-relative">Score</th>
+            <th data-key="bench_value_score" class="num" title="Ranked within the holding's own GICS sector across the S&P 500">S&amp;P sector</th>
             <th data-key="roe" class="num">ROE</th>
             <th data-key="roa" class="num" title="ROA — the closest ROIC proxy the data source provides">ROA*</th>
             <th data-key="op_margin" class="num">Op mgn</th>
@@ -496,6 +499,6 @@
   <p><strong>Tracker context, not trading advice.</strong> Nothing here is a recommendation to buy or sell any security. Factor scores are descriptive screens within this small watchlist, not market factor exposures. Figures come from Yahoo Finance via yfinance and can be wrong, stale, or missing.</p>
 </footer>
 
-<script src="app.js?v=20260819211113"></script>
+<script src="app.js?v=20260820005739"></script>
 </body>
 </html>

@@ -143,8 +143,14 @@ jobs:
                fought the 12-1 signal). Mention names whose factor standing
                *changed*, any new or cleared trap flags, and always read a
                trap flag as caution, never as a buy case. These ranks are
-               within this small watchlist, not the market — say so when you
-               lean on one.
+               measured against the S&P 500 cross-section when
+               `bench_mom_rank` / `bench_value_score` / `bench_quality_score`
+               are present: momentum against the whole index, value and
+               quality WITHIN each name's own sector (the `S&P 500` benchmark
+               block names the peer group and its size). Prefer those over the
+               watchlist-relative `mom_rank` / `value_score` / `quality_score`,
+               which are retained only for continuity — and always name which
+               population a percentile came from.
             4. **What changed since the last note.** Only genuine changes.
             5. **Hawaii tier**, briefly, if BOH / FHB / HE / MATX did anything
                notable — these are the names Census-Forecaster screens as
@@ -180,12 +186,15 @@ jobs:
         run: |
           git config user.name  "market-desk[bot]"
           git config user.email "market-desk@users.noreply.github.com"
-          git add history/
+          # history/ holds both the factor series and the benchmark snapshot;
+          # the snapshot is what lets a throttled Yahoo day fall back instead
+          # of silently reverting every percentile to watchlist-relative.
+          git add history/ config/benchmark/
           if git diff --cached --quiet; then
             echo "no history change"
             exit 0
           fi
-          git commit -m "history: factor snapshot ${{ steps.build.outputs.latest_session }}"
+          git commit -m "history: factor + benchmark snapshot ${{ steps.build.outputs.latest_session }}"
           git pull --rebase --autostash origin main || true
           git push origin HEAD:main
 

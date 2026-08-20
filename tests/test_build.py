@@ -271,3 +271,50 @@ def test_portfolio_payload_absent_without_holdings(tmp_path, fixture_result, uni
     finally:
         pf.PUBLIC_HOLDINGS = original
     assert _json.loads((tmp_path / "portfolio.json").read_text()) == {"available": False}
+
+
+def test_portfolio_does_not_confuse_value_with_quality(tmp_path):
+    """Regression: a loop variable named `val` shadowed the value score, so
+    every position's value_score was silently overwritten with its quality
+    score. The two must stay distinct."""
+    import yaml as _yaml
+    from market_desk.factors import FactorView, MomentumMetrics
+    from market_desk.portfolio import analyze, load_holdings
+
+    (tmp_path / "h.yml").write_text(_yaml.safe_dump({
+        "positions": [{"symbol": "AAA", "exposure": 1.0}],
+    }))
+    views = {
+        "AAA": FactorView("AAA", False, 20, MomentumMetrics(0.4), 0.7,
+                          value_score=0.20, quality_score=0.90),
+    }
+    a = analyze(load_holdings(tmp_path / "h.yml"), views, {"AAA": "Tech"})
+    row = a.rows[0]
+    assert row["value_score"] == pytest.approx(0.20)
+    assert row["quality_score"] == pytest.approx(0.90)
+    assert a.value_tilt == pytest.approx(0.20)
+    assert a.quality_tilt == pytest.approx(0.90)
+
+
+def test_portfolio_prefers_benchmark_scores_when_present(tmp_path):
+    import yaml as _yaml
+    from market_desk.factors import FactorView, MomentumMetrics
+    from market_desk.portfolio import analyze, load_holdings
+
+    (tmp_path / "h.yml").write_text(_yaml.safe_dump({
+        "positions": [{"symbol": "AAA", "exposure": 1.0}],
+    }))
+    fv = FactorView("AAA", False, 20, MomentumMetrics(0.4), 0.10,
+                    value_score=0.10, quality_score=0.10)
+    fv.bench_universe_n = 503
+    fv.bench_momentum_rank = 0.80
+    fv.bench_value_score = 0.60
+    fv.bench_quality_score = 0.70
+    fv.bench_value_population = "Industrials"
+
+    a = analyze(load_holdings(tmp_path / "h.yml"), {"AAA": fv}, {"AAA": "Industrials"})
+    assert a.population == "S&P 500"
+    assert a.momentum_tilt == pytest.approx(0.80), "benchmark rank must win"
+    assert a.value_tilt == pytest.approx(0.60)
+    assert a.rows[0]["value_peer_group"] == "Industrials"
+    assert any("S&P 500" in n for n in a.notes)

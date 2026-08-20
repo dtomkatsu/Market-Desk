@@ -38,6 +38,29 @@ heuristic, not a backtested signal, and it is labeled as such everywhere.
 **Forecasts.** A damped-drift projection with a 90% band, borrowed from
 [Census-Forecaster](https://github.com/dtomkatsu/Census-Forecaster) (see below).
 
+**Benchmark cross-section.** Percentiles rank against the **S&P 500** (503
+constituents, pinned in `config/benchmark/sp500.csv`), not just the tracked
+watchlist. Momentum ranks index-wide (the standard construction is not
+industry-adjusted); value and quality rank **within each name's own sector**,
+because raw multiples are dominated by industry effects — banks always screen
+cheap on P/E, software always expensive, so a cross-sector value rank partly
+measures sector membership. Every GICS sector carries ≥20 names, so
+within-sector ranking is available everywhere.
+
+The effect is not cosmetic. BOH's value score falls 0.88 → 0.58 once it is
+compared with 70 actual financials rather than a tech-heavy watchlist, and
+HE's value-trap flag *clears* — its quality rises 0.25 → 0.40 against 31
+utilities, which structurally run low ROA and high leverage. That also retires
+the financials caveat this repo previously had to attach to bank trap flags.
+
+The constituent list is committed and refreshed manually
+(`scripts/refresh_constituents.py`), never scraped by CI: the benchmark is the
+yardstick every percentile is measured against, and a yardstick that changes
+silently under the statistics is worse than a stale one. A committed snapshot
+(`history/benchmark_snapshot.json`) makes a throttled fetch fall back to the
+previous day rather than silently reverting every percentile to
+watchlist-relative.
+
 **Factors.** Cross-sectional momentum, value, and quality, built the way the
 empirical literature says they work — including the documented traps:
 
@@ -259,6 +282,7 @@ src/market_desk/
   valuation.py            peer groups and percentile ranks
   factors.py              momentum / value / quality cross-sections
   portfolio.py            portfolio exposure over held positions
+  benchmark.py            S&P 500 cross-section + sector-relative ranking
   history.py              factor drift: backfilled momentum + live snapshots
   volatility.py           EWMA regime, expected range, walk-forward validation
   catalysts.py            earnings calendar + measured reaction size

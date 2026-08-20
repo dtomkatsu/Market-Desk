@@ -168,6 +168,17 @@ def build_symbol_payload(symbol: str, result: FetchResult,
             },
             "value_trap": factors.value_trap,
             "reversal_tension": factors.reversal_tension,
+            "benchmark": None if factors.bench_universe_n is None else {
+                "momentum_rank": _round(factors.bench_momentum_rank, 3),
+                "value_score": _round(factors.bench_value_score, 3),
+                "quality_score": _round(factors.bench_quality_score, 3),
+                "value_population": factors.bench_value_population,
+                "quality_population": factors.bench_quality_population,
+                "value_n": factors.bench_value_n,
+                "quality_n": factors.bench_quality_n,
+                "universe_n": factors.bench_universe_n,
+                "value_trap": factors.bench_value_trap,
+            },
             "notes": list(factors.notes),
             "caveat": UNIVERSE_CAVEAT,
         }
@@ -434,10 +445,17 @@ def build_index_row(symbol: str, result: FetchResult,
         row["quality_score"] = _round(factors.quality_score, 3)
         row["value_trap"] = factors.value_trap
         row["reversal_tension"] = factors.reversal_tension
+        row["bench_mom_rank"] = _round(factors.bench_momentum_rank, 3)
+        row["bench_value_score"] = _round(factors.bench_value_score, 3)
+        row["bench_quality_score"] = _round(factors.bench_quality_score, 3)
+        row["bench_value_population"] = factors.bench_value_population
+        row["bench_value_n"] = factors.bench_value_n
+        row["bench_value_trap"] = factors.bench_value_trap
     else:
         for key in ("mom_12_1", "mom_6_1", "ret_1m", "mom_rank", "ev_ebitda",
                     "fcf_yield", "value_score", "roe", "roa", "op_margin",
-                    "debt_to_equity", "quality_score"):
+                    "debt_to_equity", "quality_score", "bench_mom_rank",
+                    "bench_value_score", "bench_quality_score"):
             row[key] = None
         row["value_trap"] = False
         row["reversal_tension"] = False
@@ -479,6 +497,7 @@ def write_all(universe: Universe, result: FetchResult,
               overlay: MacroOverlay,
               factor_views: Optional[dict[str, FactorView]] = None,
               history: Optional[dict[str, list]] = None,
+              benchmark=None,
               forecaster_pin: Optional[str] = None,
               data_dir: Optional[Path] = None) -> dict:
     """Write every payload. Returns the meta dict for logging."""
@@ -501,6 +520,35 @@ def write_all(universe: Universe, result: FetchResult,
         )
 
     history = history or {}
+
+    # Benchmark payload: what the population looks like, not who is in it.
+    # Deciles and sector sizes are what a reader needs to interpret a
+    # percentile; 503 individual records would be weight without meaning.
+    if benchmark:
+        population, ranker = benchmark
+        from .benchmark import decile_breakpoints
+        (data_dir / "benchmark.json").write_text(json.dumps({
+            "available": True,
+            "as_of": population.as_of,
+            "n": ranker.n,
+            "index": "S&P 500",
+            "sector_sizes": {k: len(v) for k, v in sorted(
+                population.by_sector().items(), key=lambda kv: -len(kv[1]))},
+            "deciles": decile_breakpoints(population),
+            "method": {
+                "momentum": "ranked against the whole index (standard "
+                            "Jegadeesh-Titman construction is not industry-adjusted)",
+                "value_quality": "ranked WITHIN GICS sector, because raw valuation "
+                                 "and profitability ratios are dominated by industry "
+                                 "effects — a cross-sector rank partly measures "
+                                 "sector membership rather than cheapness or quality",
+                "survivorship": "the constituent list contains today's members only. "
+                                "Fine for a current-day yardstick; any backfilled "
+                                "benchmark statistic would be survivorship-biased.",
+            },
+        }, separators=(",", ":")))
+    else:
+        (data_dir / "benchmark.json").write_text(json.dumps({"available": False}))
 
     # Portfolio payload. include_local=False is a hard guarantee, not a
     # convention: dollar values and cost basis cannot reach docs/ even if
@@ -543,12 +591,14 @@ def write_all(universe: Universe, result: FetchResult,
                     "quality_score": _round(r["quality_score"], 3),
                     "value_trap": r["value_trap"],
                     "reversal_tension": r["reversal_tension"],
+                    "value_peer_group": r.get("value_peer_group"),
                     "scored": r["scored"],
                     "note": r.get("note"),
                 }
                 for r in pa.rows
             ],
             "notes": pa.notes,
+            "population": pa.population,
             "crash_risk": _crash_payload(result, history, pa.momentum_tilt),
             "cash": [
                 {"symbol": c.symbol, "name": c.name, "exposure": _round(c.exposure, 4)}

@@ -143,6 +143,22 @@ def load_holdings(path: Optional[Path] = None,
     )
 
 
+def _preferred(fv) -> tuple[Optional[float], Optional[float], Optional[float], bool, str]:
+    """Pick the statistically meaningful scores for a holding.
+
+    Benchmark ranks win when present: a percentile against ~500 names with
+    sector-relative value and quality is a far better measurement than one
+    against a couple of dozen watchlist names. The watchlist scores stay in
+    the payload for continuity with recorded history, but the portfolio
+    tilt should describe the better measurement.
+    """
+    if fv.bench_universe_n is not None:
+        return (fv.bench_momentum_rank, fv.bench_value_score,
+                fv.bench_quality_score, fv.bench_value_trap, "S&P 500")
+    return (fv.momentum_rank, fv.value_score, fv.quality_score,
+            fv.value_trap, "tracked universe")
+
+
 @dataclass
 class PortfolioAnalysis:
     as_of: Optional[str] = None
@@ -172,6 +188,7 @@ class PortfolioAnalysis:
 
     rows: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    population: str = "tracked universe"
 
 
 def analyze(holdings: Holdings,
@@ -229,22 +246,27 @@ def analyze(holdings: Holdings,
 
         row["scored"] = True
         scored_w += w
-        pairs = (("momentum", fv.momentum_rank),
-                 ("value", fv.value_score),
-                 ("quality", fv.quality_score))
-        for key, val in pairs:
-            if val is None:
+        mom, val, qual, trap, population = _preferred(fv)
+        out.population = population
+        pairs = (("momentum", mom), ("value", val), ("quality", qual))
+        # NOTE the loop variable name: reusing `val` here shadows the value
+        # score unpacked above, and every position's value_score silently
+        # became its quality_score.
+        for key, score in pairs:
+            if score is None:
                 continue
-            acc[key] += w * val
-            acc_eq[key] += val
+            acc[key] += w * score
+            acc_eq[key] += score
             counted[key] += w
             counted_n[key] += 1
-        row["momentum_rank"] = fv.momentum_rank
-        row["value_score"] = fv.value_score
-        row["quality_score"] = fv.quality_score
-        row["value_trap"] = fv.value_trap
+        row["momentum_rank"] = mom
+        row["value_score"] = val
+        row["quality_score"] = qual
+        row["value_trap"] = trap
         row["reversal_tension"] = fv.reversal_tension
-        if fv.value_trap:
+        row["population"] = population
+        row["value_peer_group"] = fv.bench_value_population
+        if trap:
             out.trap_weight += w
         if fv.reversal_tension:
             out.reversal_weight += w
@@ -314,9 +336,19 @@ def _notes(a: PortfolioAnalysis, holdings: Holdings) -> list[str]:
                 f"({a.momentum_tilt:.2f} vs {a.momentum_tilt_equal:.2f})."
             )
 
-    notes.append(
-        "All percentiles are cross-sectional within the tracked universe, not "
-        "market-wide factor exposures. Descriptive only — this is not advice, "
-        "and nothing here is a recommendation to change any position."
-    )
+    if a.population == "S&P 500":
+        notes.append(
+            "Percentiles are measured against the S&P 500 cross-section — "
+            "momentum against the whole index, value and quality within each "
+            "holding's own sector, so a utility is compared with utilities "
+            "rather than with software. Descriptive only — this is not advice, "
+            "and nothing here is a recommendation to change any position."
+        )
+    else:
+        notes.append(
+            "Percentiles are cross-sectional within the tracked universe only "
+            "— a couple of dozen names, not market-wide factor exposures. "
+            "Descriptive only — this is not advice, and nothing here is a "
+            "recommendation to change any position."
+        )
     return notes

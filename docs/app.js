@@ -37,6 +37,7 @@ const state = {
   portfolio: null,
   history: {},
   calendar: null,
+  benchmark: null,
   historyProvenance: {},
   askReady: false,
   askBusy: false,
@@ -100,18 +101,20 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
 
 async function boot() {
   try {
-    const [index, meta, notes, portfolio, history, calendar] = await Promise.all([
+    const [index, meta, notes, portfolio, history, calendar, benchmark] = await Promise.all([
       fetch('data/index.json?t=' + Date.now()).then((r) => r.json()),
       fetch('data/meta.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/notes.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/portfolio.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/history.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/calendar.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
+      fetch('data/benchmark.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
     ]);
     state.portfolio = (portfolio && portfolio.positions) ? portfolio : null;
     state.history = (history && history.series) || {};
     state.historyProvenance = (history && history.provenance) || {};
     state.calendar = calendar || null;
+    state.benchmark = (benchmark && benchmark.available) ? benchmark : null;
     state.index = index;
     state.meta = meta;
     state.notes = (notes && notes.notes) || [];
@@ -797,11 +800,13 @@ const FACTOR_COLS = [
   ['mom_12_1', (r) => `<td class="num ${fmt.cls(r.mom_12_1)}">${fmt.signedPct(r.mom_12_1, 1)}</td>`],
   ['mom_6_1', (r) => `<td class="num ${fmt.cls(r.mom_6_1)}">${fmt.signedPct(r.mom_6_1, 1)}</td>`],
   ['ret_1m', (r) => `<td class="num faint">${fmt.signedPct(r.ret_1m, 1)}</td>`],
-  ['mom_rank', (r) => `<td class="num">${fmt.score(r.mom_rank)}</td>`],
+  ['mom_rank', (r) => `<td class="num faint">${fmt.score(r.mom_rank)}</td>`],
+  ['bench_mom_rank', (r) => `<td class="num">${fmt.score(r.bench_mom_rank)}</td>`],
   ['ev_ebitda', (r) => `<td class="num">${fmt.num(r.ev_ebitda, 1)}</td>`],
   ['fcf_yield', (r) => `<td class="num">${fmt.pct(r.fcf_yield, 1)}</td>`],
   ['earnings_yield', (r) => `<td class="num">${fmt.pct(r.earnings_yield, 1)}</td>`],
-  ['value_score', (r) => `<td class="num">${fmt.score(r.value_score)}</td>`],
+  ['value_score', (r) => `<td class="num faint">${fmt.score(r.value_score)}</td>`],
+  ['bench_value_score', (r) => `<td class="num" title="${esc(r.bench_value_population || '')}${r.bench_value_n ? ' (n=' + r.bench_value_n + ')' : ''}">${fmt.score(r.bench_value_score)}</td>`],
   ['roe', (r) => `<td class="num">${fmt.pct(r.roe, 1)}</td>`],
   ['roa', (r) => `<td class="num">${fmt.pct(r.roa, 1)}</td>`],
   ['op_margin', (r) => `<td class="num">${fmt.pct(r.op_margin, 1)}</td>`],
@@ -819,6 +824,14 @@ const FACTOR_COLS = [
 function renderFactors() {
   const caveat = (state.meta && state.meta.factor_caveat) || '';
   el('factor-caveat').textContent = caveat;
+
+  const b = state.benchmark;
+  el('bench-note').innerHTML = b
+    ? `Dimmed columns are watchlist-relative (n=${(state.rows.filter((r) => r.mom_rank != null)).length}); `
+      + `the <strong>S&amp;P</strong> columns rank against ${b.n} ${esc(b.index)} constituents as of ${esc(b.as_of)} — `
+      + 'momentum against the whole index, value <em>within each name\'s own sector</em>, '
+      + 'because raw multiples are dominated by industry effects. Hover a value cell for its peer group and size.'
+    : 'Benchmark cross-section unavailable — all percentiles below are watchlist-relative.';
 
   const rows = state.rows;
   const { key, dir } = state.factorSort;
@@ -1037,10 +1050,14 @@ function renderPortfolio() {
 
   const universeN = (state.rows.find((r) => r.mom_rank != null) || {});
   const n = state.meta && state.meta.symbols_ok;
-  el('pf-stamp').textContent =
-    `${pf.n_positions} positions as of ${pf.as_of || '—'} · ` +
-    `ranked against the tracked cross-section (${n || '—'} symbols tracked). ` +
-    `Percentiles are watchlist-relative, not market factor exposures.`;
+  const bench = state.benchmark;
+  el('pf-stamp').textContent = (pf.population === 'S&P 500' && bench)
+    ? `${pf.n_positions} positions as of ${pf.as_of || '—'} · ranked against `
+      + `${bench.n} S&P 500 constituents — momentum index-wide, value and quality `
+      + `within each holding's own sector.`
+    : `${pf.n_positions} positions as of ${pf.as_of || '—'} · ranked against the `
+      + `tracked cross-section (${n || '—'} symbols). Watchlist-relative, not `
+      + `market factor exposures.`;
 
   el('pf-tilts').innerHTML =
     tiltBar('Momentum', pf.tilts.momentum, pf.tilts.momentum_equal, 'laggards', 'leaders') +
@@ -1081,7 +1098,7 @@ function renderPortfolio() {
       <td class="sym sticky-col">${esc(p.symbol)}</td>
       <td class="num">${fmt.pct(p.weight, 1)}</td>
       <td class="num faint">${fmt.pct(p.account_weight, 1)}</td>
-      <td class="name">${esc(p.sector || '—')}</td>
+      <td class="name" title="${esc(p.value_peer_group ? 'value/quality peers: ' + p.value_peer_group : '')}">${esc(p.sector || '—')}</td>
       <td class="num">${score(p.momentum_rank)}</td>
       <td class="num">${score(p.value_score)}</td>
       <td class="num">${score(p.quality_score)}</td>

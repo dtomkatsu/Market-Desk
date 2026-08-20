@@ -75,6 +75,25 @@
   daily vol because that is still the top of its own distribution.
   `MIN_TURBULENT_ANNUAL_VOL` (3%) catches it; nothing real in this universe
   is near it (lowest is TLT at ~11%).
+- **The benchmark constituent list is PINNED and CI never scrapes it.**
+  `config/benchmark/sp500.csv` is refreshed by hand via
+  `scripts/refresh_constituents.py` with the diff reviewed in the commit. The
+  benchmark is the yardstick every percentile is measured against; one that
+  moves silently invalidates comparisons across time. The script also refuses
+  to write a list outside 480-520 names.
+- **Value and quality rank WITHIN sector; momentum ranks index-wide.** Raw
+  multiples are dominated by industry effects, so a cross-sector value rank
+  partly measures sector membership. Momentum gets no industry adjustment —
+  that matches the standard Jegadeesh-Titman construction. Do not "simplify"
+  by ranking everything one way.
+- **Sector labels come from Yahoo for every name**, benchmark and tracked
+  alike. The CSV's GICS labels define membership only; mixing two taxonomies
+  in the ranking would put a tracked name in one bucket and its true peers in
+  another.
+- **`history/benchmark_snapshot.json` must stay committed.** It is the
+  fallback when Yahoo throttles 500 consecutive info calls. Without it a bad
+  fetch day silently reverts every percentile to watchlist-relative, changing
+  what the numbers mean with no visible signal.
 - **`docs/data/` is generated, not committed.** It is in `.gitignore`. If you
   find yourself committing payloads, something is wrong.
 - **Do NOT hand-bump `?v=` on `styles.css` / `app.js`.** The global

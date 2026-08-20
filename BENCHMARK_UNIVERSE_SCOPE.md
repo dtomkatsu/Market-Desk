@@ -1,6 +1,7 @@
 # Scope: S&P 500 benchmark cross-section
 
-**Status: scoped 2026-08-20, not yet built.** Feasibility numbers below are
+**Status: BUILT 2026-08-20.** Shipped substantially as scoped; see README
+and `CLAUDE.md` for the resulting rules. Deviations noted inline below. Feasibility numbers below are
 measured, not estimated. Decision and build order at the end.
 
 ## Objective
@@ -81,7 +82,7 @@ the full S&P 500 delivers all of them without any sampling scheme:
 |---|---|
 | Constituent list | Wikipedia S&P 500 table via pandas: 503 rows with GICS sectors, parses cleanly |
 | Price history | `yf.download`, 100 tickers × 2y in **5.4s** → full index ≈ 30s; 100/100 usable |
-| Fundamentals | `.info` at **0.39s/ticker** → 503 ≈ **3.3 min**; no throttling observed at burst of 20 |
+| Fundamentals | `.info` at **0.39s/ticker** → 503 ≈ 3.3 min projected; **actual full run 4:53** (network variance at scale); no throttling observed |
 | Refresh impact | ~+4 min on the daily CI job (currently ~1.5 min) — comfortable |
 | Payload impact | benchmark names get compact records (no candles/indicators): ~100 KB total, vs ~290 KB for ONE display symbol today |
 

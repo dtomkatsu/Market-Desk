@@ -1,0 +1,18 @@
+# Runtime dependencies.
+#
+# Census-Forecaster is consumed as a PINNED GIT DEPENDENCY, not vendored —
+# the same convention Cost-of-Living-Tracker uses against the same upstream.
+# Both lines below MUST point at the same commit: `census-common` and
+# `census-forecaster` are two subdirectories of one repo, and letting them
+# drift apart is how you get an import error that looks like a code bug.
+#
+# To bump: pick a commit that exists on Census-Forecaster's origin/main,
+# replace the SHA on both lines, reinstall, and run the tests.
+
+pyyaml>=6.0
+yfinance>=0.2.40
+numpy>=1.24
+scipy>=1.11
+
+census-common @ git+https://github.com/dtomkatsu/Census-Forecaster.git@0e89e3800970ee33eecc8ede000864d64c7d5d8d#subdirectory=packages/common
+census-forecaster @ git+https://github.com/dtomkatsu/Census-Forecaster.git@0e89e3800970ee33eecc8ede000864d64c7d5d8d#subdirectory=packages/census_forecaster

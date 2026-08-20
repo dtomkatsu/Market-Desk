@@ -1,0 +1,82 @@
+# The tracked universe. Edit this file freely — it is the only place tickers
+# are declared, and every downstream artifact (charts, screens, Claude's daily
+# note) follows from it.
+#
+# Tiers are labels, not behavior: they group the dashboard and give the
+# analysis note something to compare within. A ticker may appear in only one
+# tier; the first occurrence wins.
+#
+# To pull in a Yahoo Finance watchlist, export it from Yahoo
+# (My Portfolio > the list > ⋯ > Export) and run:
+#
+#     python scripts/import_yahoo_watchlist.py ~/Downloads/quotes.csv --tier watchlist
+#
+# which merges the symbols into the `watchlist` tier below, in place.
+
+tiers:
+  core:
+    label: Core index & sector ETFs
+    note: >-
+      Broad benchmarks and sector proxies. These set the baseline every
+      single-name comparison is read against — a P/E means little without
+      knowing what the index trades at.
+    symbols:
+      - SPY    # S&P 500
+      - QQQ    # Nasdaq 100
+      - VTI    # Total US market
+      - IWM    # Russell 2000 (small caps)
+      - DIA    # Dow 30
+      - XLF    # Financials
+      - XLE    # Energy
+      - XLK    # Technology
+      - XLV    # Health care
+      - XLRE   # Real estate
+      - VNQ    # REITs
+      - JETS   # Airlines
+      - TLT    # 20y+ Treasuries — the rates leg
+      - GLD    # Gold
+
+  watchlist:
+    label: Watchlist
+    note: >-
+      Your own tracked names. Seeded with large, liquid US listings so the
+      dashboard has something real to show on first run; replace them with
+      your Yahoo Finance list.
+    symbols:
+      - AAPL
+      - MSFT
+      - NVDA
+      - GOOGL
+      - AMZN
+      - META
+      - BRK-B
+      - JPM
+      - COST
+      - UNH
+
+  hawaii:
+    label: Hawaii-lead tier
+    note: >-
+      The Hawaii-exposed names pre-registered in Census-Forecaster's
+      markets.universe, carried here with their lead hypotheses. These are
+      the tickers the forecaster's Granger screen actually tests against
+      Hawaii macro series.
+    symbols:
+      - BOH    # Bank of Hawaii — local credit
+      - FHB    # First Hawaiian — local credit
+      - HE     # Hawaiian Electric — utilities
+      - MATX   # Matson — ocean freight
+
+# Fetch and analysis settings.
+settings:
+  # Daily bars pulled per refresh. 5y gives the chart real history and leaves
+  # enough runway for a 200-day moving average from the first visible bar.
+  history_period: 5y
+
+  # Sessions used for the relative-volume baseline. 20 ≈ one trading month.
+  rvol_window: 20
+
+  # A P/E is only comparable inside a sector, so ranks are computed per
+  # sector when at least this many names share one. Below it, the whole
+  # universe is the comparison set and the dashboard says so.
+  min_sector_peers: 4

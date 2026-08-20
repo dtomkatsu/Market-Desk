@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/**", "tests/**", "scripts/**", "requirements*.txt", ".github/workflows/tests.yml"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install --quiet -r requirements-dev.txt
+      - run: python -m pytest tests/ -q

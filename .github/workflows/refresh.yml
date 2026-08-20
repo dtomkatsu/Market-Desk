@@ -1,0 +1,204 @@
+name: Daily refresh
+
+# Pulls prices and fundamentals, rebuilds every dashboard payload, has Claude
+# write the day's analysis note, and publishes the result to GitHub Pages.
+#
+# The generated payloads under docs/data/ are NOT committed. They are built
+# fresh here and handed straight to the Pages artifact, which keeps the repo
+# from accumulating ~8 MB of JSON per weekday. The only thing this workflow
+# commits is the analysis note, which is small, and worth having a history of.
+
+on:
+  schedule:
+    # 22:00 UTC = 12:00 HST, ~2 hours after the US close in either DST regime.
+    # Mon-Fri only; market holidays still fire and are handled below by
+    # comparing the latest session in the data against the notes already
+    # written, rather than by trying to encode the NYSE holiday calendar.
+    - cron: "0 22 * * 1-5"
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_analysis:
+        description: "Write an analysis note even if one already exists for this session"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: market-desk-refresh
+  cancel-in-progress: false
+
+env:
+  # Date the CLAUDE_CODE_OAUTH_TOKEN secret was generated with `claude setup-token`.
+  # These last a year and cannot be renewed non-interactively; the token-expiry
+  # job below opens a reminder issue 30 days out. Set to "unknown" to disable.
+  TOKEN_ISSUED: "2026-08-19"
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    outputs:
+      latest_session: ${{ steps.build.outputs.latest_session }}
+      need_analysis: ${{ steps.gate.outputs.need_analysis }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --quiet -r requirements-dev.txt
+
+      - name: Run tests
+        # The pure transforms are cheap to verify and this is the only gate
+        # between a bad edit and a published dashboard.
+        run: python -m pytest tests/ -q
+
+      - name: Refresh market data
+        id: build
+        run: python scripts/refresh.py
+
+      - name: Decide whether today needs an analysis note
+        id: gate
+        run: |
+          session="${{ steps.build.outputs.latest_session }}"
+          if [ -f "analysis/${session}.md" ] && [ "${{ inputs.force_analysis }}" != "true" ]; then
+            echo "note for ${session} already exists — skipping analysis"
+            echo "need_analysis=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "need_analysis=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write the analysis note
+        if: steps.gate.outputs.need_analysis == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: >-
+            --allowedTools "Read,Write,Glob,Grep,Bash(ls:*),Bash(cat:*),Bash(jq:*)"
+            --max-turns 25
+          prompt: |
+            You are writing the daily analysis note for a stock tracking
+            dashboard. The data for the session dated
+            ${{ steps.build.outputs.latest_session }} was just rebuilt.
+
+            Read `docs/data/index.json` — one summary row per tracked symbol —
+            and `docs/data/meta.json`. Open a few `docs/data/symbols/<SYM>.json`
+            files for anything you want to look at closely; each holds the full
+            daily series, volume analytics, valuation ranks and a damped-trend
+            forecast. Read the two or three most recent notes in `analysis/` so
+            you can say what changed rather than restating the board.
+
+            Write `analysis/${{ steps.build.outputs.latest_session }}.md`.
+
+            The two things this dashboard exists to track are **valuation
+            (P/E)** and **volume**, so lead with those:
+
+            1. **Volume.** Which names traded unusually — `rvol` well above or
+               below 1, `volume_trend` expanding or contracting, a `divergence`
+               verdict of `confirmed`, `weak` or `washout`. Say what the move
+               was and whether participation backed it. An advance on
+               contracting volume and a decline on heavy volume are the two
+               patterns worth naming explicitly.
+            2. **Valuation.** Where multiples sit against their peer group —
+               use `pe_percentile` and `peer_group`, never a raw P/E on its
+               own. Call out anything that moved materially between quartiles,
+               and any large gap between trailing and forward P/E.
+            3. **What changed since the last note.** Only genuine changes.
+            4. **Hawaii tier**, briefly, if BOH / FHB / HE / MATX did anything
+               notable — these are the names Census-Forecaster screens as
+               leading indicators for Hawaii's economy.
+
+            Rules:
+            - Use the real numbers. Never invent one, and never fill a gap with
+              an estimate — if a field is null, the honest sentence is that it
+              is not reported.
+            - A quiet day is a fine finding. Write four lines saying so rather
+              than manufacturing significance. Do not pad.
+            - `peer_group` is often "tracked universe" rather than a sector,
+              because most sectors have too few members in this watchlist to
+              compare within. When you cite a percentile, say what it was
+              measured against.
+            - The `divergence` verdict is a descriptive heuristic, not a
+              backtested signal. Do not treat it as one.
+            - This is analysis, not advice. Never recommend buying or selling
+              anything, and never state or imply a price target. The
+              damped-trend forecast is a trend projection with a wide
+              calibrated band — describe it as such if you mention it.
+
+            Start with a single sentence naming the most notable thing on the
+            board. Write only that one file; a later step commits it.
+
+      - name: Commit the analysis note
+        if: steps.gate.outputs.need_analysis == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name  "market-desk[bot]"
+          git config user.email "market-desk@users.noreply.github.com"
+          # claude-code-action swaps in its own installation token for the
+          # duration of its run and revokes it afterward, which leaves origin
+          # pointing at a dead credential. Re-point at the Actions token.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git add analysis/
+          if git diff --cached --quiet; then
+            echo "no note was written"
+            exit 0
+          fi
+          git commit -m "analysis: ${{ steps.build.outputs.latest_session }}"
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+
+  deploy:
+    needs: refresh
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  token-expiry:
+    # Separate job so a token problem surfaces even when the refresh fails.
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'schedule'
+    permissions:
+      issues: write
+    steps:
+      - name: Warn before the OAuth token expires
+        if: env.TOKEN_ISSUED != 'unknown'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          issued=$(date -u -d "$TOKEN_ISSUED" +%s 2>/dev/null) || exit 0
+          left=$(( 365 - ( ( $(date -u +%s) - issued ) / 86400 ) ))
+          echo "~${left} days until the Claude token expires"
+          [ "$left" -gt 30 ] && exit 0
+          open=$(gh issue list --repo "$REPO" --state open \
+                   --search "Claude token expires in:title" --json number --jq 'length')
+          [ "${open:-0}" != "0" ] && { echo "reminder already open"; exit 0; }
+          gh issue create --repo "$REPO" \
+            --title "Claude token expires in ~${left} days — regenerate it" \
+            --body "$(printf '%s\n' \
+              "The \`CLAUDE_CODE_OAUTH_TOKEN\` secret used by the daily refresh was generated on ${TOKEN_ISSUED} and lasts one year. It cannot be renewed automatically — the flow needs an interactive browser login." \
+              "" "To renew:" "" \
+              '1. Run `claude setup-token` locally and copy the token.' \
+              "2. Update the \`CLAUDE_CODE_OAUTH_TOKEN\` secret in this repo's settings." \
+              '3. Set `TOKEN_ISSUED` in `.github/workflows/refresh.yml` to today.')"

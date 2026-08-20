@@ -1,0 +1,11 @@
+# Generated dashboard payloads. Built fresh by the daily workflow and handed
+# straight to the Pages artifact — committing them would add ~8 MB of JSON to
+# the repo every weekday for data that is stale the moment it lands.
+# Run `python scripts/refresh.py` to regenerate locally.
+docs/data/
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store

@@ -1,0 +1,12 @@
+[project]
+name = "market-desk"
+version = "0.1.0"
+description = "Stock tracking dashboard with valuation and volume analytics"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+where = ["src"]

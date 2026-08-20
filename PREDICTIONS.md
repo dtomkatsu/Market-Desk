@@ -77,12 +77,31 @@ target.
 
 ### 5. Weak, basket-scale tendencies (use with real caution)
 
-Momentum continuation is documented at market-wide, hundreds-of-names scale.
-Measured on this tracked universe directly — 46 monthly observations,
-top-momentum names against bottom-momentum names, one-month forward
-return — the "winners" beat the "losers" in 26 of 46 months. That is
-barely better than a coin flip and should not be read as a signal for any
-single name. It is reported as context, never as a call.
+Momentum continuation is documented at market-wide scale, and is now measured
+here rather than assumed — `scripts/momentum_study.py`, S&P 500 cross-section,
+5 years, 46 monthly observations:
+
+| | mean spread | t | positive months |
+|---|---|---|---|
+| terciles (~164/leg) | +0.82%/mo | +1.55 | 31/46 (67%) |
+| deciles (~49/leg) | +1.76%/mo | +1.58 | 28/46 (61%) |
+
+**Suggestive, not established.** t=1.55 is short of the conventional t=2, so
+this could still be chance. What changed versus the earlier watchlist-only
+test is precision, not the answer: the mean barely moved (+0.80% → +0.82%)
+while the standard deviation fell from 9.94% to 3.58%. The earlier "26 of 46,
+coin flip" reading was **uninformative** — that test could not have detected a
+1%/month effect. This one could, and sees something around 0.8%/month.
+
+Two limits to keep attached. Reaching t=2 at this effect size needs ~77
+monthly observations (~6.4 years); there are 46. And the constituent list is
+today's members, so dropped names (usually poor performers) are absent while
+recently added ones qualified after strong runs — survivorship pushes the
+result in both directions and the net is unknown.
+
+Critically, this is a **basket** result: ~164 names per leg. It says nothing
+about whether any individual holding will outperform, and the dashboard never
+presents a single name's momentum rank as a call.
 
 ## What is not predictable, and is not attempted
 

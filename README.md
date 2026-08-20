@@ -283,6 +283,7 @@ src/market_desk/
   factors.py              momentum / value / quality cross-sections
   portfolio.py            portfolio exposure over held positions
   benchmark.py            S&P 500 cross-section + sector-relative ranking
+scripts/momentum_study.py  does momentum work here? measure, don't assume
   history.py              factor drift: backfilled momentum + live snapshots
   volatility.py           EWMA regime, expected range, walk-forward validation
   catalysts.py            earnings calendar + measured reaction size
@@ -331,6 +332,23 @@ the same token the local Ask server uses. These
 last a year and cannot be renewed non-interactively, so a `token-expiry` job
 opens a reminder issue 30 days out. Update `TOKEN_ISSUED` in the workflow
 whenever you regenerate it.
+
+**Does momentum actually work here?** `scripts/momentum_study.py` measures it
+on the S&P 500 cross-section rather than assuming. Result on 5 years, 46
+monthly observations, ~164 names per leg:
+
+| | mean spread | t | positive months |
+|---|---|---|---|
+| terciles | +0.82%/mo (+10.3%/yr) | +1.55 | 31/46 (67%) |
+| deciles | +1.76%/mo (+23.4%/yr) | +1.58 | 28/46 (61%) |
+
+**Not significant at t=2**, so this remains suggestive rather than
+established — but it is now *informative*, which the watchlist version was
+not. Broadening from ~8 to ~164 names per leg cut the spread's standard
+deviation from 9.94% to 3.58% while leaving the mean essentially unchanged
+(+0.80% → +0.82%): the estimate did not move, it got 2.8× more precise. At
+this effect size, reaching t=2 needs ~77 monthly observations (~6.4 years);
+the sample has 46 and grows by one a month.
 
 See [`PREDICTIONS.md`](PREDICTIONS.md) for a full account of what this
 dashboard can and cannot predict, with the evidence behind each claim.

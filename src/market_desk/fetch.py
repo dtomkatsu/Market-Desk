@@ -144,10 +144,19 @@ def fetch_history(symbols: list[str], period: str = "5y") -> tuple[dict[str, lis
         return {}, {s: "empty download" for s in symbols}
 
     for symbol in symbols:
+        # With group_by="ticker" yfinance returns two-level columns for a
+        # SINGLE symbol as well as for many, so there is no one-symbol special
+        # case to make — an earlier `if len(symbols) > 1` here left the frame
+        # un-indexed and every single-symbol call died on a missing "Close".
+        # The flat-column branch is kept only as a defence against the shape
+        # changing under us.
         try:
-            sub = frame[symbol] if len(symbols) > 1 else frame
+            sub = frame[symbol] if frame.columns.nlevels > 1 else frame
         except KeyError:
             failures[symbol] = "no rows in download"
+            continue
+        if "Close" not in sub.columns:
+            failures[symbol] = "unexpected frame shape (no Close column)"
             continue
 
         sub = sub.dropna(subset=["Close"])

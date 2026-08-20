@@ -318,3 +318,29 @@ def test_portfolio_prefers_benchmark_scores_when_present(tmp_path):
     assert a.value_tilt == pytest.approx(0.60)
     assert a.rows[0]["value_peer_group"] == "Industrials"
     assert any("S&P 500" in n for n in a.notes)
+
+
+def test_fetch_history_handles_a_single_symbol(monkeypatch):
+    """Regression: group_by='ticker' returns two-level columns even for one
+    symbol, so the old `len(symbols) > 1` special case left the frame
+    un-indexed and every single-symbol fetch raised KeyError('Close')."""
+    import pandas as pd
+    from market_desk import fetch as fetch_mod
+
+    idx = pd.to_datetime(["2026-08-18", "2026-08-19"])
+    frame = pd.DataFrame(
+        {("SPY", "Open"): [1.0, 2.0], ("SPY", "High"): [1.1, 2.1],
+         ("SPY", "Low"): [0.9, 1.9], ("SPY", "Close"): [1.05, 2.05],
+         ("SPY", "Volume"): [10.0, 20.0]},
+        index=idx)
+    frame.columns = pd.MultiIndex.from_tuples(frame.columns)
+
+    class _Stub:
+        @staticmethod
+        def download(**kwargs):
+            return frame
+
+    monkeypatch.setitem(__import__("sys").modules, "yfinance", _Stub)
+    bars, failures = fetch_mod.fetch_history(["SPY"], period="1mo")
+    assert failures == {}
+    assert [b.close for b in bars["SPY"]] == [1.05, 2.05]

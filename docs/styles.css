@@ -618,3 +618,35 @@ th.group { text-align: center; border-left: 1px solid var(--border-soft); }
 .pf-explain-body { margin-top: 12px; max-width: 92ch; font-size: 13px; line-height: 1.65; color: var(--text-dim); }
 .pf-explain-body p { margin: 0 0 11px; }
 .pf-explain-body strong { color: var(--text); }
+
+/* ---------- factor drift ---------- */
+
+.pf-drift { display: grid; gap: 10px; margin-bottom: 22px; }
+
+.drift-row {
+  display: grid;
+  grid-template-columns: 74px repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: center;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.drift-sym { font-family: var(--mono); font-weight: 620; font-size: 13px; }
+.drift-sym small { display: block; font-family: var(--sans); font-weight: 400; font-size: 10.5px; color: var(--text-faint); }
+
+.drift-cell { min-width: 0; }
+.drift-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5px; color: var(--text-faint); margin-bottom: 3px; }
+.drift-delta { font-family: var(--mono); font-size: 11px; }
+.drift-delta.up { color: var(--up); }
+.drift-delta.down { color: var(--down); }
+.drift-delta.flat { color: var(--text-faint); }
+.drift-cell svg { display: block; width: 100%; height: 30px; }
+.drift-none { font-size: 11px; color: var(--text-faint); padding: 8px 0; }
+
+@media (max-width: 900px) {
+  .drift-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .drift-sym { display: flex; align-items: baseline; gap: 8px; }
+  .drift-sym small { display: inline; }
+}

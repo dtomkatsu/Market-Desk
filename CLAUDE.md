@@ -42,6 +42,15 @@
   `build.py` calls `load_holdings(include_local=False)` so no dollar figure can
   reach `docs/` even if this file is later edited carelessly — that guarantee
   has a test. Never widen it: the repo is public and git history is permanent.
+- **Momentum history is backfillable; value and quality are NOT.** The 12-1
+  window at date T uses only prices up to T, so it reconstructs exactly.
+  Trailing P/E, ROE and margins have no published history — quarterly
+  statements are *as restated today*, so rebuilding past valuations from them
+  leaks information that did not exist then. Never "improve" the backfill by
+  adding them; the forward-only accumulation is the honest design.
+- **`history/factors.jsonl` MUST be committed by the workflow.** It is the
+  only persistence for value/quality drift — `docs/data/` is regenerated and
+  gitignored, so an uncommitted history resets every run.
 - **`docs/data/` is generated, not committed.** It is in `.gitignore`. If you
   find yourself committing payloads, something is wrong.
 - **Do NOT hand-bump `?v=` on `styles.css` / `app.js`.** The global

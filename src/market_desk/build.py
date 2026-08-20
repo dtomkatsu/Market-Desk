@@ -332,6 +332,7 @@ def write_all(universe: Universe, result: FetchResult,
               forecasts: dict[str, SymbolForecast],
               overlay: MacroOverlay,
               factor_views: Optional[dict[str, FactorView]] = None,
+              history: Optional[dict[str, list]] = None,
               forecaster_pin: Optional[str] = None,
               data_dir: Optional[Path] = None) -> dict:
     """Write every payload. Returns the meta dict for logging."""
@@ -409,6 +410,19 @@ def write_all(universe: Universe, result: FetchResult,
         json.dumps(portfolio_payload or {"available": False}, separators=(",", ":"))
     )
 
+    history = history or {}
+    (data_dir / "history.json").write_text(json.dumps({
+        "series": history,
+        "provenance": {
+            "momentum": "reconstructed from price history — the 12-1 window at "
+                        "any date uses only bars up to that date",
+            "value_quality": "forward-accumulating snapshots only; the data "
+                             "source publishes no history for these fields",
+            "selection_bias": "the cross-section is today's watchlist, so a "
+                              "backfilled rank compares names selected later",
+        },
+    }, separators=(",", ":")))
+
     notes = collect_notes()
     (data_dir / "notes.json").write_text(
         json.dumps({"notes": notes}, separators=(",", ":"))
@@ -435,6 +449,7 @@ def write_all(universe: Universe, result: FetchResult,
         "forecasts_ok": sum(1 for f in forecasts.values() if f.horizons),
         "notes_count": len(notes),
         "portfolio": bool(portfolio_payload),
+        "history_symbols": len(history),
         "forecaster_pin": forecaster_pin,
         "factor_caveat": UNIVERSE_CAVEAT,
         "macro_overlay": {

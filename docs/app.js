@@ -35,6 +35,8 @@ const state = {
   notes: [],
   activeNote: null,
   portfolio: null,
+  history: {},
+  historyProvenance: {},
   askReady: false,
   askBusy: false,
 };
@@ -97,13 +99,16 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
 
 async function boot() {
   try {
-    const [index, meta, notes, portfolio] = await Promise.all([
+    const [index, meta, notes, portfolio, history] = await Promise.all([
       fetch('data/index.json?t=' + Date.now()).then((r) => r.json()),
       fetch('data/meta.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/notes.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/portfolio.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
+      fetch('data/history.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
     ]);
     state.portfolio = (portfolio && portfolio.positions) ? portfolio : null;
+    state.history = (history && history.series) || {};
+    state.historyProvenance = (history && history.provenance) || {};
     state.index = index;
     state.meta = meta;
     state.notes = (notes && notes.notes) || [];
@@ -1087,6 +1092,96 @@ function renderPortfolio() {
   });
 
   el('pf-notes').innerHTML = (pf.notes || []).map((t) => `<p>${esc(t)}</p>`).join('');
+  renderDrift();
+}
+
+/* ---------------- factor drift ---------------- */
+
+/** Sparkline over a 0-1 factor series, with the 0.5 midpoint drawn in. */
+function sparkline(points, key, color) {
+  const vals = points.filter((p) => p[key] != null);
+  if (vals.length < 2) return null;
+
+  const W = 100, H = 30, pad = 2;
+  const n = vals.length;
+  const x = (i) => pad + (i / (n - 1)) * (W - pad * 2);
+  // Factor scores are already 0-1 percentiles, so the axis is fixed rather
+  // than auto-scaled: a flat line at 0.9 should look different from a flat
+  // line at 0.1, which auto-scaling would render identically.
+  const y = (v) => pad + (1 - v) * (H - pad * 2);
+
+  const path = vals.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[key]).toFixed(1)}`).join('');
+  const mid = y(0.5).toFixed(1);
+  const last = vals[n - 1];
+
+  // Mark where forward-accumulating data starts, when the series mixes
+  // reconstructed and live points.
+  const firstLive = vals.findIndex((p) => p.s === 'live');
+  const liveMark = firstLive > 0
+    ? `<line x1="${x(firstLive).toFixed(1)}" y1="${pad}" x2="${x(firstLive).toFixed(1)}" y2="${H - pad}" stroke="var(--text-faint)" stroke-width="1" stroke-dasharray="2 2" opacity="0.5"/>`
+    : '';
+
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">
+    <line x1="${pad}" y1="${mid}" x2="${W - pad}" y2="${mid}" stroke="var(--border)" stroke-width="1" stroke-dasharray="3 3"/>
+    ${liveMark}
+    <path d="${path}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+    <circle cx="${x(n - 1).toFixed(1)}" cy="${y(last[key]).toFixed(1)}" r="2" fill="${color}"/>
+  </svg>`;
+}
+
+function driftCell(label, points, key, color) {
+  const vals = points.filter((p) => p[key] != null);
+  const spark = sparkline(points, key, color);
+  if (!spark) {
+    const why = key === 'm'
+      ? 'not enough history'
+      : 'starts accumulating from the first live run';
+    return `<div class="drift-cell">
+      <div class="drift-head"><span>${esc(label)}</span><span class="drift-delta flat">—</span></div>
+      <div class="drift-none">${esc(why)}</div>
+    </div>`;
+  }
+  const change = vals[vals.length - 1][key] - vals[0][key];
+  const cls = Math.abs(change) < 0.05 ? 'flat' : change > 0 ? 'up' : 'down';
+  const sign = change > 0 ? '+' : '';
+  return `<div class="drift-cell" title="${vals.length} samples, ${esc(vals[0].d)} → ${esc(vals[vals.length - 1].d)}">
+    <div class="drift-head">
+      <span>${esc(label)} ${vals[vals.length - 1][key].toFixed(2)}</span>
+      <span class="drift-delta ${cls}">${sign}${change.toFixed(2)}</span>
+    </div>
+    ${spark}
+  </div>`;
+}
+
+function renderDrift() {
+  const host = el('pf-drift');
+  const pf = state.portfolio;
+  if (!host || !pf) return;
+
+  // A single live point cannot be drawn, so "accumulating" is only the
+  // right message once some symbol has at least two.
+  const anyLive = Object.values(state.history).some((pts) =>
+    pts.filter((p) => p.s === 'live' && (p.v != null || p.q != null)).length >= 2);
+  el('pf-drift-lede').innerHTML = anyLive
+    ? 'Momentum rank is reconstructed from price history; value and quality accumulate forward from the first run, so their series start short. The dashed vertical marks where live snapshots begin. Dashed horizontal is the 0.5 midpoint.'
+    : 'Momentum rank is reconstructed from price history — the 12-1 window at any date uses only bars up to that date. Value and quality have no published history and accumulate forward from today, so they will fill in over coming sessions.';
+
+  host.innerHTML = (pf.positions || []).map((p) => {
+    const pts = state.history[p.symbol] || [];
+    return `<div class="drift-row" data-symbol="${esc(p.symbol)}">
+      <div class="drift-sym">${esc(p.symbol)}<small>${fmt.pct(p.weight, 0)}</small></div>
+      ${driftCell('Momentum', pts, 'm', '#58a6ff')}
+      ${driftCell('Value', pts, 'v', '#26a69a')}
+      ${driftCell('Quality', pts, 'q', '#a371f7')}
+    </div>`;
+  }).join('');
+
+  host.querySelectorAll('.drift-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      selectSymbol(row.dataset.symbol);
+      switchView('chart');
+    });
+  });
 }
 
 /* ---------------- analysis notes ---------------- */

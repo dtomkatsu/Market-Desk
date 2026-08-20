@@ -75,6 +75,24 @@ values, cost basis and unrealized P/L and is gitignored. The payload builder
 loads holdings with `include_local=False`, so dollar figures cannot reach
 `docs/` even by accident — there is a test asserting it.
 
+**Factor drift.** `history/factors.jsonl` accumulates a per-symbol factor
+snapshot each run, and the Portfolio tab draws sparklines showing how each
+holding's standing has moved. Two provenances, labeled rather than blended:
+
+- *Momentum is reconstructed exactly* — the 12-1 window at any past date uses
+  only bars up to that date, so ~4 years backfills from the price history with
+  no look-ahead. There is a test that recomputes every backfilled value from
+  truncated bars and asserts it matches.
+- *Value and quality accumulate forward only* — the data source publishes no
+  history for trailing P/E, ROE or margins. Quarterly statements exist for
+  about five quarters, but they are the figures **as restated today**, so
+  rebuilding a past valuation from them would leak information that did not
+  exist at the time. The series start when the file starts.
+
+The whole file carries one caveat: the cross-section is *today's* watchlist, so
+a backfilled rank answers "how did the things I now track compare back then",
+not "what would I have seen at the time".
+
 **Claude, two ways.**
 
 *Daily notes* — Claude reads the rebuilt payloads each trading day and writes
@@ -188,6 +206,7 @@ src/market_desk/
   valuation.py            peer groups and percentile ranks
   factors.py              momentum / value / quality cross-sections
   portfolio.py            portfolio exposure over held positions
+  history.py              factor drift: backfilled momentum + live snapshots
   forecast.py             bridge to Census-Forecaster's damped-drift forecaster
   macro.py                the Hawaii lead-signal overlay
   build.py                assemble docs/data/*.json

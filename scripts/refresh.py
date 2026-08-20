@@ -19,6 +19,9 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from market_desk.build import DATA_DIR, write_all            # noqa: E402
 from market_desk.config import load_universe                 # noqa: E402
 from market_desk.factors import build_factor_views           # noqa: E402
+from market_desk.history import (                            # noqa: E402
+    backfill_momentum, load_history, series_by_symbol, snapshot_today, write_history,
+)
 from market_desk.fetch import fetch_all                      # noqa: E402
 from market_desk.forecast import forecast_all                # noqa: E402
 from market_desk.macro import load_overlay                   # noqa: E402
@@ -82,6 +85,23 @@ def main(argv=None) -> int:
     ranked = sum(1 for v in factor_views.values() if v.momentum_rank is not None)
     print(f"factors: {ranked} companies in the cross-section")
 
+    # Factor history. Momentum is reconstructed from prices (no look-ahead:
+    # the window at date T uses only bars up to T); value and quality only
+    # accumulate forward, because Yahoo publishes no history for them and
+    # rebuilding from restated statements would leak information that did
+    # not exist at the time.
+    session = max((bars[-1].date for bars in result.bars.values()),
+                  default=result.fetch_date)
+    existing = load_history()
+    history_rows = list(existing)
+    if not any(r.source == "backfill" for r in existing):
+        backfilled = backfill_momentum(result.bars, result.fundamentals)
+        history_rows.extend(backfilled)
+        print(f"history: backfilled {len(backfilled)} momentum rows")
+    history_rows.extend(snapshot_today(session, factor_views))
+    total = write_history(history_rows)
+    print(f"history: {total} rows through {session}")
+
     overlay = load_overlay()
     if not overlay.available:
         print(f"::warning::macro overlay unavailable: {overlay.error}")
@@ -89,6 +109,7 @@ def main(argv=None) -> int:
     meta = write_all(
         universe, result, valuations, forecasts, overlay,
         factor_views=factor_views,
+        history=series_by_symbol(load_history()),
         forecaster_pin=forecaster_pin(),
         data_dir=Path(args.data_dir) if args.data_dir else None,
     )

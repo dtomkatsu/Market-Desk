@@ -96,7 +96,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: >-
             --allowedTools "Read,Write,Glob,Grep,Bash(ls:*),Bash(cat:*),Bash(jq:*)"
-            --max-turns 25
+            --max-turns 60
           prompt: |
             You are writing the daily analysis note for a stock tracking
             dashboard. The data for the session dated
@@ -164,7 +164,12 @@ jobs:
             board. Write only that one file; a later step commits it.
 
       - name: Commit the analysis note
-        if: steps.gate.outputs.need_analysis == 'true' && steps.analysis.outcome == 'success'
+        # Deliberately NOT gated on steps.analysis.outcome: the action reports
+        # failure when Claude exceeds --max-turns even though it wrote a
+        # perfectly good note first, and discarding finished work over a
+        # bookkeeping limit is the wrong trade. The `git diff --cached
+        # --quiet` check below makes this a no-op when no note was produced.
+        if: always() && steps.gate.outputs.need_analysis == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -6,7 +6,7 @@
 <title>Market Desk</title>
 <meta name="description" content="Stock tracking dashboard — price, valuation, volume, and factor analytics.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
-<link rel="stylesheet" href="styles.css?v=20260819183259">
+<link rel="stylesheet" href="styles.css?v=20260819185459">
 <script src="vendor/klinecharts.min.js"></script>
 </head>
 <body>
@@ -21,6 +21,7 @@
     <button class="view-tab" data-view="screen" role="tab">Screen</button>
     <button class="view-tab" data-view="factors" role="tab">Factors</button>
     <button class="view-tab" data-view="portfolio" role="tab">Portfolio</button>
+    <button class="view-tab" data-view="timing" role="tab">Timing</button>
     <button class="view-tab" data-view="analysis" role="tab">Analysis</button>
   </nav>
   <div class="stamp">
@@ -144,6 +145,10 @@
       </article>
       <article class="card" id="card-factors">
         <h3>Factor profile</h3>
+        <div class="card-body"></div>
+      </article>
+      <article class="card" id="card-timing">
+        <h3>Volatility &amp; catalysts</h3>
         <div class="card-body"></div>
       </article>
       <article class="card" id="card-forecast">
@@ -354,6 +359,114 @@
     </div>
   </section>
 
+  <!-- Timing view -->
+  <section id="view-timing" class="view">
+    <div class="screen-head">
+      <h2>Timing</h2>
+      <p class="muted">
+        How much a name is likely to move, and when. Magnitude only —
+        <strong>nothing here indicates direction</strong>, which is not
+        forecastable at this horizon.
+      </p>
+    </div>
+
+    <h3 class="pf-h">Upcoming catalysts</h3>
+    <p class="pf-lede">
+      Scheduled earnings dates, soonest first. Amplification is each name's own
+      median announcement-day move divided by its median ordinary session —
+      measured from its history, not assumed. A ratio near 1 means earnings are
+      not an unusual event for that stock.
+    </p>
+    <div class="table-wrap">
+      <table id="cal-table">
+        <thead>
+          <tr>
+            <th class="sticky-col">Symbol</th>
+            <th>Date</th>
+            <th class="num">In</th>
+            <th class="num" title="Median absolute move on past announcement sessions">Typical move</th>
+            <th class="num" title="Median absolute move on ordinary sessions">Normal day</th>
+            <th class="num">Amplification</th>
+            <th class="num">Events</th>
+            <th>Tier</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h3 class="pf-h" style="margin-top:24px">Volatility regime</h3>
+    <p class="pf-lede">
+      Where each name's current volatility sits in its <em>own</em> trailing
+      year, and — critically — whether that label has any measured predictive
+      content. The verdict column comes from walking forward through history,
+      labelling each day from prior data only, and checking whether turbulent
+      days were actually followed by larger moves.
+    </p>
+    <div class="table-wrap">
+      <table id="vol-table">
+        <thead>
+          <tr>
+            <th class="sticky-col">Symbol</th>
+            <th>Regime</th>
+            <th class="num" title="Percentile of current volatility within its own trailing year">Percentile</th>
+            <th class="num">Ann. vol</th>
+            <th class="num" title="Expected 1-week range, half-width">±1 week</th>
+            <th class="num" title="Ratio of realized move after turbulent vs quiet labels">Separation</th>
+            <th>Validation</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <details class="pf-explain" style="margin-top:22px">
+      <summary>What this can and cannot tell you</summary>
+      <div class="pf-explain-body">
+        <p><strong>Magnitude is forecastable; direction is not.</strong>
+        Volatility clusters — large moves follow large moves, and realized
+        volatility is strongly autocorrelated. That makes "how far might this
+        move" a tractable question. Which <em>way</em> it moves over days or
+        weeks is not, and nothing on this page attempts it.</p>
+
+        <p><strong>Regimes are self-relative.</strong> 2% daily volatility is
+        turbulent for a utility and ordinary for a biotech, so each name is
+        placed against its own trailing year rather than an absolute
+        threshold. "Quiet" does not mean safe; it means calmer than this
+        stock usually is.</p>
+
+        <p><strong>The validation column is the important one.</strong> A
+        regime label is only a claim about the future where walk-forward
+        testing shows it separates future moves. Across this universe it
+        confirms on most index and sector ETFs and on large caps, and fails
+        on already-noisy single names where volatility is high all the time.
+        Where it reads <em>no separation</em>, the label describes the
+        present and predicts nothing — treat it as context, not signal.</p>
+
+        <p><strong>Expected range is a band, not a target.</strong> The
+        multiplier is calibrated per series by walk-forward coverage rather
+        than taken from a normal table. Measured across this universe it
+        lands roughly 1.08–1.30, scattered around the 1.2816 Gaussian value —
+        the case for calibrating is per-series accuracy, not a uniformly
+        wider band. Roughly one week in five should land outside it by
+        construction.</p>
+
+        <p><strong>Earnings amplification is measured per name.</strong> The
+        reaction session accounts for reporting time: a company announcing
+        after the close moves the <em>next</em> session, and treating the
+        announcement date as the reaction would measure an ordinary day.
+        Some names genuinely move less on earnings than on a typical day —
+        that shows up as an amplification below 1, and is reported rather
+        than smoothed away.</p>
+
+        <p><strong>Not included:</strong> options-implied moves. The chains
+        available for this universe are too thin to trust — a probe returned
+        nine contracts for one holding with an implied volatility of
+        0.00001. Silently wrong data is worse than missing data.</p>
+      </div>
+    </details>
+  </section>
+
   <!-- Analysis view -->
   <section id="view-analysis" class="view">
     <div class="screen-head">
@@ -378,6 +491,6 @@
   <p><strong>Tracker context, not trading advice.</strong> Nothing here is a recommendation to buy or sell any security. Factor scores are descriptive screens within this small watchlist, not market factor exposures. Figures come from Yahoo Finance via yfinance and can be wrong, stale, or missing.</p>
 </footer>
 
-<script src="app.js?v=20260819183259"></script>
+<script src="app.js?v=20260819185459"></script>
 </body>
 </html>

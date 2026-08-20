@@ -650,3 +650,23 @@ th.group { text-align: center; border-left: 1px solid var(--border-soft); }
   .drift-sym { display: flex; align-items: baseline; gap: 8px; }
   .drift-sym small { display: inline; }
 }
+
+/* ---------- timing ---------- */
+
+.regime { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.regime-quiet { background: rgba(38,166,154,0.16); color: #4db6ac; }
+.regime-normal { background: var(--bg-input); color: var(--text-dim); }
+.regime-turbulent { background: rgba(239,83,80,0.16); color: #ef6461; }
+.regime-unknown { background: var(--bg-input); color: var(--text-faint); }
+
+.verdict-confirmed2 { background: rgba(38,166,154,0.16); color: #4db6ac; }
+.verdict-weak2 { background: rgba(210,153,34,0.16); color: #d4a531; }
+.verdict-none2 { background: var(--bg-input); color: var(--text-faint); }
+
+/* A row whose regime label has no measured predictive content is dimmed:
+   the number is still shown, but it should not read as a signal. */
+tr.unvalidated td:not(.sticky-col) { opacity: 0.55; }
+
+.cal-soon { color: var(--warn); font-weight: 600; }
+.amp-strong { color: var(--down); font-weight: 600; }
+.amp-weak { color: var(--text-faint); }

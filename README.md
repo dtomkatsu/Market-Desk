@@ -93,6 +93,34 @@ The whole file carries one caveat: the cross-section is *today's* watchlist, so
 a backfilled rank answers "how did the things I now track compare back then",
 not "what would I have seen at the time".
 
+**Timing.** A Timing tab answering "how much might this move, and when" —
+never which way, which is not forecastable at this horizon.
+
+- *Volatility regime* — EWMA daily volatility (λ=0.94, the RiskMetrics daily
+  constant, deliberately not the λ=0.97 the upstream forecaster uses for
+  monthly bars) placed against each name's **own** trailing year, since 2%
+  daily vol is turbulent for a utility and ordinary for a biotech.
+- *Validation travels with the label.* Walk-forward through history, label
+  each day from prior data only, measure the move that followed. Across this
+  universe it confirms on 19 series, is weak on 13, and shows **no separation
+  on 12** — it works on index/sector ETFs and large caps, and fails on
+  already-noisy single names. Unvalidated rows are dimmed in the table: the
+  label describes the present rather than forecasting anything.
+- *Expected range* — a band whose multiplier is calibrated per series by
+  walk-forward coverage. Measured here it lands ~1.08–1.30, scattered around
+  the 1.2816 Gaussian value; the case for calibrating is per-series accuracy,
+  not a uniformly wider band.
+- *Catalyst calendar* — scheduled earnings dates with each name's own measured
+  amplification (median announcement-day move ÷ median ordinary session). The
+  reaction session accounts for reporting time: a company announcing after the
+  close moves the **next** session, and treating the announcement date as the
+  reaction understates after-close reporters badly — it read NVDA at 0.7x when
+  the true figure is 2.9x.
+
+Deliberately absent: options-implied moves. The chains for this universe are
+too thin to trust — a probe returned nine contracts for one holding with an
+implied volatility of 0.00001.
+
 **Claude, two ways.**
 
 *Daily notes* — Claude reads the rebuilt payloads each trading day and writes
@@ -207,6 +235,8 @@ src/market_desk/
   factors.py              momentum / value / quality cross-sections
   portfolio.py            portfolio exposure over held positions
   history.py              factor drift: backfilled momentum + live snapshots
+  volatility.py           EWMA regime, expected range, walk-forward validation
+  catalysts.py            earnings calendar + measured reaction size
   forecast.py             bridge to Census-Forecaster's damped-drift forecaster
   macro.py                the Hawaii lead-signal overlay
   build.py                assemble docs/data/*.json

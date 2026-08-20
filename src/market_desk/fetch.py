@@ -88,6 +88,7 @@ class FetchResult:
     bars: dict[str, list[Bar]] = field(default_factory=dict)
     fundamentals: dict[str, Fundamentals] = field(default_factory=dict)
     failures: dict[str, str] = field(default_factory=dict)   # symbol -> reason
+    catalysts: dict[str, dict] = field(default_factory=dict)  # symbol -> raw dates
 
 
 def _clean(value) -> Optional[float]:
@@ -249,6 +250,40 @@ def fetch_fundamentals(symbols: list[str], pause: float = 0.2) -> dict[str, Fund
     return out
 
 
+def fetch_earnings_dates(symbols: list[str], pause: float = 0.2) -> dict[str, dict]:
+    """Announcement dates (past and scheduled) plus the ex-dividend date.
+
+    Best-effort per symbol, like fundamentals: this is the same undocumented
+    endpoint, and an ETF legitimately has none. A failure yields an empty
+    record rather than aborting the refresh.
+    """
+    import yfinance as yf
+
+    out: dict[str, dict] = {}
+    for symbol in symbols:
+        record: dict = {"earnings_dates": [], "ex_dividend": None}
+        try:
+            ticker = yf.Ticker(symbol)
+            frame = ticker.earnings_dates
+            if frame is not None and not frame.empty:
+                # Keep the TIME, not just the date. Companies reporting after
+                # the close move the *next* session, and a date alone cannot
+                # tell the two cases apart — measuring the wrong bar makes an
+                # after-close reporter look like it barely reacts to earnings.
+                record["earnings_dates"] = sorted(
+                    {ts.isoformat() for ts in frame.index}
+                )
+            cal = ticker.calendar or {}
+            ex_div = cal.get("Ex-Dividend Date")
+            if ex_div is not None:
+                record["ex_dividend"] = getattr(ex_div, "isoformat", lambda: str(ex_div))()
+        except Exception as exc:                      # noqa: BLE001
+            print(f"  ! {symbol}: catalysts unavailable ({type(exc).__name__})")
+        out[symbol] = record
+        time.sleep(pause)
+    return out
+
+
 def fetch_all(symbols: list[str], period: str = "5y") -> FetchResult:
     """One full refresh."""
     print(f"fetching {len(symbols)} symbols, period={period}")
@@ -259,9 +294,14 @@ def fetch_all(symbols: list[str], period: str = "5y") -> FetchResult:
     fundamentals = fetch_fundamentals(got)
     print(f"  fundamentals: {sum(1 for f in fundamentals.values() if f.trailing_pe)} with a trailing P/E")
 
+    catalysts = fetch_earnings_dates(got)
+    scheduled = sum(1 for c in catalysts.values() if c.get("earnings_dates"))
+    print(f"  catalysts: {scheduled} symbols with earnings dates")
+
     return FetchResult(
         fetch_date=datetime.now(timezone.utc).date().isoformat(),
         bars=bars,
         fundamentals=fundamentals,
         failures=failures,
+        catalysts=catalysts,
     )

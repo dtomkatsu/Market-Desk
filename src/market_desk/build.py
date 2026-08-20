@@ -31,7 +31,9 @@ from .indicators import (
     annualized_vol, atr, bollinger, ema, macd, max_drawdown,
     pct_change, range_position, rsi, sma,
 )
+from .catalysts import build_catalysts, describe as describe_catalysts
 from .macro import MacroOverlay, summarize_ticker
+from .volatility import classify_regime, expected_range, validate_regimes
 from .portfolio import analyze as analyze_portfolio, load_holdings
 from .valuation import ValuationView, describe_rank
 from .volume import (
@@ -130,6 +132,7 @@ def build_symbol_payload(symbol: str, result: FetchResult,
         "forecast": None,
         "macro_signals": summarize_ticker(overlay, symbol),
         "factors": None,
+        "timing": _timing_block(symbol, bars, closes, result),
     }
 
     if factors:
@@ -214,6 +217,65 @@ def build_symbol_payload(symbol: str, result: FetchResult,
     return payload
 
 
+def _timing_block(symbol: str, bars, closes, result: FetchResult) -> dict:
+    """Volatility regime, expected range, and scheduled catalysts.
+
+    The validation verdict travels WITH the regime label. A regime is only
+    a claim about future moves on series where walk-forward testing shows
+    the label actually separates them; elsewhere it is a description of the
+    present, and the payload says which.
+    """
+    regime = classify_regime(closes)
+    validation = validate_regimes(closes, horizon=5)
+    raw = (result.catalysts or {}).get(symbol) or {}
+    cat = build_catalysts(symbol, bars, raw.get("earnings_dates") or [],
+                          ex_dividend=raw.get("ex_dividend"))
+
+    ranges = {}
+    for label, horizon in (("1d", 1), ("1w", 5), ("1m", 21)):
+        er = expected_range(closes, horizon)
+        if er:
+            ranges[label] = {
+                "low": _round(er.low, 4), "high": _round(er.high, 4),
+                "pct": _round(er.pct, 5), "multiplier": _round(er.multiplier, 3),
+                "calibrated": er.calibrated, "coverage": er.coverage_target,
+            }
+
+    return {
+        "regime": {
+            "label": regime.label,
+            "percentile": _round(regime.percentile, 3),
+            "daily_vol": _round(regime.daily_vol, 5),
+            "annualized_vol": _round(regime.annualized_vol, 4),
+            "detail": regime.detail,
+        },
+        "validation": {
+            "verdict": validation.verdict,
+            "separation": _round(validation.separation, 3),
+            "monotonic": validation.monotonic,
+            "n": validation.n,
+            "horizon_days": validation.horizon_days,
+            "mean_abs_move": {k: _round(v, 5) for k, v in validation.mean_abs_move.items()},
+        },
+        "expected_range": ranges,
+        "catalysts": {
+            "next_earnings": cat.next_earnings,
+            "days_until": cat.days_until,
+            "ex_dividend": cat.ex_dividend,
+            "n_past_events": len(cat.past_earnings),
+            "reaction": (None if cat.reaction is None else {
+                "n_events": cat.reaction.n_events,
+                "median_move": _round(cat.reaction.median_move, 5),
+                "baseline_move": _round(cat.reaction.baseline_move, 5),
+                "amplification": _round(cat.reaction.amplification, 3),
+                "largest_move": _round(cat.reaction.largest_move, 5),
+                "meaningful": cat.reaction.meaningful,
+            }),
+            "summary": describe_catalysts(cat),
+        },
+    }
+
+
 def build_index_row(symbol: str, result: FetchResult,
                     valuation: Optional[ValuationView],
                     universe: Universe,
@@ -271,6 +333,18 @@ def build_index_row(symbol: str, result: FetchResult,
         )
     else:
         row["range_52w_position"] = None
+
+    # Regime summary travels in the index row so the Timing table is complete
+    # on load rather than filling in only as symbols are opened.
+    regime = classify_regime(closes)
+    validation = validate_regimes(closes, horizon=5)
+    week = expected_range(closes, 5)
+    row["regime"] = regime.label
+    row["regime_percentile"] = _round(regime.percentile, 3)
+    row["regime_ann_vol"] = _round(regime.annualized_vol, 4)
+    row["regime_verdict"] = validation.verdict
+    row["regime_separation"] = _round(validation.separation, 3)
+    row["expected_week_pct"] = _round(week.pct, 5) if week else None
 
     if factors:
         m = factors.momentum
@@ -410,6 +484,43 @@ def write_all(universe: Universe, result: FetchResult,
         json.dumps(portfolio_payload or {"available": False}, separators=(",", ":"))
     )
 
+    # Calendar: every known upcoming catalyst across the tracked universe,
+    # soonest first, each carrying that name's own measured reaction size.
+    calendar_rows = []
+    for symbol in sorted(result.bars):
+        raw = (result.catalysts or {}).get(symbol) or {}
+        if not raw.get("earnings_dates"):
+            continue
+        bars = result.bars[symbol]
+        cat = build_catalysts(symbol, bars, raw["earnings_dates"],
+                              ex_dividend=raw.get("ex_dividend"))
+        if not cat.next_earnings:
+            continue
+        f = result.fundamentals.get(symbol)
+        calendar_rows.append({
+            "symbol": symbol,
+            "name": f.name if f else None,
+            "tier": universe.tier_of(symbol),
+            "date": cat.next_earnings,
+            "days_until": cat.days_until,
+            "ex_dividend": cat.ex_dividend,
+            "median_move": _round(cat.reaction.median_move, 5) if cat.reaction else None,
+            "baseline_move": _round(cat.reaction.baseline_move, 5) if cat.reaction else None,
+            "amplification": _round(cat.reaction.amplification, 3) if cat.reaction else None,
+            "n_events": cat.reaction.n_events if cat.reaction else 0,
+            "meaningful": bool(cat.reaction and cat.reaction.meaningful),
+            "summary": describe_catalysts(cat),
+        })
+    calendar_rows.sort(key=lambda r: (r["date"], r["symbol"]))
+    (data_dir / "calendar.json").write_text(json.dumps({
+        "events": calendar_rows,
+        "note": ("Amplification is this name's own median announcement-day move "
+                 "divided by its median ordinary session. It is measured, not "
+                 "assumed: a ratio near or below 1 means earnings are not an "
+                 "unusual event for that stock. Magnitude only — nothing here "
+                 "indicates direction."),
+    }, separators=(",", ":")))
+
     history = history or {}
     (data_dir / "history.json").write_text(json.dumps({
         "series": history,
@@ -450,6 +561,7 @@ def write_all(universe: Universe, result: FetchResult,
         "notes_count": len(notes),
         "portfolio": bool(portfolio_payload),
         "history_symbols": len(history),
+        "calendar_events": len(calendar_rows),
         "forecaster_pin": forecaster_pin,
         "factor_caveat": UNIVERSE_CAVEAT,
         "macro_overlay": {

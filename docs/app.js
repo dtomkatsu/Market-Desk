@@ -36,6 +36,7 @@ const state = {
   activeNote: null,
   portfolio: null,
   history: {},
+  calendar: null,
   historyProvenance: {},
   askReady: false,
   askBusy: false,
@@ -99,16 +100,18 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
 
 async function boot() {
   try {
-    const [index, meta, notes, portfolio, history] = await Promise.all([
+    const [index, meta, notes, portfolio, history, calendar] = await Promise.all([
       fetch('data/index.json?t=' + Date.now()).then((r) => r.json()),
       fetch('data/meta.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/notes.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/portfolio.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/history.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
+      fetch('data/calendar.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
     ]);
     state.portfolio = (portfolio && portfolio.positions) ? portfolio : null;
     state.history = (history && history.series) || {};
     state.historyProvenance = (history && history.provenance) || {};
+    state.calendar = calendar || null;
     state.index = index;
     state.meta = meta;
     state.notes = (notes && notes.notes) || [];
@@ -130,6 +133,7 @@ async function boot() {
   renderFactors();
   renderNotes();
   renderPortfolio();
+  renderTiming();
   wireControls();
   probeAsk();
 
@@ -575,6 +579,7 @@ async function selectSymbol(symbol) {
   renderSymbolHead();
   loadChartData();
   renderCards();
+  renderTimingCard();
 
   const url = new URL(location);
   url.searchParams.set('symbol', symbol);
@@ -1184,6 +1189,108 @@ function renderDrift() {
   });
 }
 
+/* ---------------- timing ---------------- */
+
+const VERDICT_CLASS = {
+  confirmed: 'verdict-confirmed2',
+  weak: 'verdict-weak2',
+};
+
+function renderTiming() {
+  // --- catalyst calendar ---
+  const events = (state.calendar && state.calendar.events) || [];
+  el('cal-table').querySelector('tbody').innerHTML = events.length
+    ? events.map((e) => {
+        const soon = e.days_until != null && e.days_until <= 14;
+        const ampCls = e.amplification == null ? ''
+          : e.amplification >= 2 ? 'amp-strong'
+          : e.amplification < 1.25 ? 'amp-weak' : '';
+        return `<tr data-symbol="${esc(e.symbol)}">
+          <td class="sym sticky-col">${esc(e.symbol)}</td>
+          <td>${esc(e.date)}</td>
+          <td class="num ${soon ? 'cal-soon' : ''}">${e.days_until == null ? '—' : e.days_until + 'd'}</td>
+          <td class="num">${fmt.pct(e.median_move, 1)}</td>
+          <td class="num faint">${fmt.pct(e.baseline_move, 1)}</td>
+          <td class="num ${ampCls}">${e.amplification == null ? '—' : e.amplification.toFixed(1) + '×'}</td>
+          <td class="num faint">${e.n_events || '—'}</td>
+          <td class="name">${esc(e.tier || '')}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="8" class="empty">No scheduled earnings dates available.</td></tr>';
+
+  // --- volatility regimes ---
+  // Read straight from the index rows, so the table is complete on load.
+  // Confirmed rows sort first: an unvalidated label is context, not signal,
+  // and should not head the list.
+  const order = { confirmed: 0, weak: 1, 'no separation': 2 };
+  const vrows = state.rows
+    .filter((r) => r.regime)
+    .sort((a, b) => (order[a.regime_verdict] ?? 3) - (order[b.regime_verdict] ?? 3)
+                 || (b.regime_separation ?? 0) - (a.regime_separation ?? 0));
+
+  el('vol-table').querySelector('tbody').innerHTML = vrows.length
+    ? vrows.map((r) => {
+        const unvalidated = r.regime_verdict !== 'confirmed';
+        const vcls = VERDICT_CLASS[r.regime_verdict] || 'verdict-none2';
+        return `<tr data-symbol="${esc(r.symbol)}" class="${unvalidated ? 'unvalidated' : ''}">
+          <td class="sym sticky-col">${esc(r.symbol)}</td>
+          <td><span class="regime regime-${esc(r.regime)}">${esc(r.regime)}</span></td>
+          <td class="num">${r.regime_percentile == null ? '—' : Math.round(r.regime_percentile * 100)}</td>
+          <td class="num">${fmt.pct(r.regime_ann_vol, 0)}</td>
+          <td class="num">${r.expected_week_pct == null ? '—' : '±' + fmt.pct(r.expected_week_pct, 1)}</td>
+          <td class="num">${r.regime_separation == null ? '—' : r.regime_separation.toFixed(2) + '×'}</td>
+          <td><span class="verdict ${vcls}">${esc(r.regime_verdict || '—')}</span></td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="7" class="empty">No regime data yet — run the refresh.</td></tr>';
+
+  for (const id of ['cal-table', 'vol-table']) {
+    el(id).querySelectorAll('tbody tr[data-symbol]').forEach((tr) => {
+      tr.addEventListener('click', () => {
+        selectSymbol(tr.dataset.symbol);
+        switchView('chart');
+      });
+    });
+  }
+}
+
+function renderTimingCard() {
+  const p = state.current;
+  const body = el('card-timing').querySelector('.card-body');
+  const t = p && p.timing;
+  if (!t) { body.innerHTML = '<p class="note">No timing data.</p>'; return; }
+
+  const reg = t.regime || {};
+  const v = t.validation || {};
+  const r = t.expected_range || {};
+  const c = t.catalysts || {};
+
+  let html = `<p class="note">
+    <span class="regime regime-${esc(reg.label || 'unknown')}">${esc(reg.label || '—')}</span>
+    ${reg.percentile == null ? '' : `<span class="faint"> · ${Math.round(reg.percentile * 100)}th percentile of its own year</span>`}
+  </p>
+  <p class="note">${esc(reg.detail || '')}</p>
+  <dl class="kv">
+    <dt>Annualized vol</dt><dd>${fmt.pct(reg.annualized_vol, 0)}</dd>
+    <dt>Expected ±1 day</dt><dd>${r['1d'] ? '±' + fmt.pct(r['1d'].pct, 1) : '—'}</dd>
+    <dt>Expected ±1 week</dt><dd>${r['1w'] ? '±' + fmt.pct(r['1w'].pct, 1) : '—'}</dd>
+    <dt>Expected ±1 month</dt><dd>${r['1m'] ? '±' + fmt.pct(r['1m'].pct, 1) : '—'}</dd>
+  </dl>`;
+
+  if (v.verdict === 'confirmed') {
+    html += `<p class="note">Regime labels are <strong>validated</strong> on this series: turbulent stretches were followed by moves ${v.separation ? v.separation.toFixed(2) + '×' : ''} the size of quiet ones across ${v.n} walk-forward observations.</p>`;
+  } else if (v.verdict === 'weak') {
+    html += `<p class="note faint">Regime labels separate future moves only weakly here (${v.separation ? v.separation.toFixed(2) + '×' : '—'}). Read the label as description, not signal.</p>`;
+  } else {
+    html += `<p class="note faint">Regime labels show <strong>no measured predictive content</strong> on this series (${v.separation ? v.separation.toFixed(2) + '×' : '—'} separation). The label describes current volatility; it does not forecast future moves for this name.</p>`;
+  }
+
+  html += `<p class="note">${esc(c.summary || '')}</p>`;
+  if (c.ex_dividend) html += `<p class="note faint">Ex-dividend ${esc(c.ex_dividend)}.</p>`;
+  html += `<p class="note faint">Magnitude only — none of this indicates direction.</p>`;
+  body.innerHTML = html;
+}
+
 /* ---------------- analysis notes ---------------- */
 
 function renderNotes() {
@@ -1224,7 +1331,7 @@ function showNote(date) {
 
 function switchView(view) {
   document.querySelectorAll('.view-tab').forEach((b) => b.classList.toggle('is-active', b.dataset.view === view));
-  for (const id of ['chart', 'screen', 'factors', 'portfolio', 'analysis']) {
+  for (const id of ['chart', 'screen', 'factors', 'portfolio', 'timing', 'analysis']) {
     el('view-' + id).classList.toggle('is-active', id === view);
   }
   if (view === 'chart' && chartState.chart) {

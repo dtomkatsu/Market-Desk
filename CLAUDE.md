@@ -51,6 +51,20 @@
 - **`history/factors.jsonl` MUST be committed by the workflow.** It is the
   only persistence for value/quality drift — `docs/data/` is regenerated and
   gitignored, so an uncommitted history resets every run.
+- **An after-close announcement reacts on the NEXT session.** yfinance's
+  earnings timestamps carry the hour: <09:30 ET reports move that day's bar,
+  >=16:00 ET reports move the following one. Dropping the time and using the
+  announcement date for everything measures an ordinary day for every
+  after-close reporter — it read NVDA at 0.7x amplification when the real
+  figure is 2.9x, and META at 0.9x when it is 6.8x. `announcement_date()`
+  owns this; never reduce those timestamps to bare dates upstream of it.
+- **λ=0.94 is the DAILY EWMA constant; 0.97 is monthly.** A decay constant
+  encodes a half-life in bars, so copying one across cadences silently
+  changes the estimator's memory. Same rule Census-Forecaster applies to φ.
+- **A regime label is not a claim until `validate_regimes` says so.** It
+  confirms on ~19 of 44 series here and shows no separation on 12. The
+  verdict must travel with the label everywhere it is displayed, and
+  unvalidated rows are dimmed rather than shown as signal.
 - **`docs/data/` is generated, not committed.** It is in `.gitignore`. If you
   find yourself committing payloads, something is wrong.
 - **Do NOT hand-bump `?v=` on `styles.css` / `app.js`.** The global

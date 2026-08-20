@@ -69,9 +69,16 @@ jobs:
 
       - name: Decide whether today needs an analysis note
         id: gate
+        env:
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: |
           session="${{ steps.build.outputs.latest_session }}"
-          if [ -f "analysis/${session}.md" ] && [ "${{ inputs.force_analysis }}" != "true" ]; then
+          if [ "$HAS_TOKEN" != "true" ]; then
+            # Not an error. The dashboard is the deliverable; the note is an
+            # extra that needs a secret the repo may not have yet.
+            echo "::notice::CLAUDE_CODE_OAUTH_TOKEN is not set — publishing without an analysis note. Run 'claude setup-token' and add it as a repository secret to enable them."
+            echo "need_analysis=false" >> "$GITHUB_OUTPUT"
+          elif [ -f "analysis/${session}.md" ] && [ "${{ inputs.force_analysis }}" != "true" ]; then
             echo "note for ${session} already exists — skipping analysis"
             echo "need_analysis=false" >> "$GITHUB_OUTPUT"
           else
@@ -80,6 +87,10 @@ jobs:
 
       - name: Write the analysis note
         if: steps.gate.outputs.need_analysis == 'true'
+        # Never let the note block the deploy. An expired token or a bad API
+        # day should cost the day's commentary, not the day's dashboard.
+        continue-on-error: true
+        id: analysis
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -139,7 +150,7 @@ jobs:
             board. Write only that one file; a later step commits it.
 
       - name: Commit the analysis note
-        if: steps.gate.outputs.need_analysis == 'true'
+        if: steps.gate.outputs.need_analysis == 'true' && steps.analysis.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -158,14 +169,20 @@ jobs:
           git pull --rebase --autostash origin main || true
           git push origin HEAD:main
 
-      - uses: actions/configure-pages@v6
+      # `always()` is deliberate: the payloads in docs/ were built by the
+      # refresh step above and are worth publishing whatever happened to the
+      # optional analysis note afterwards.
+      - if: always() && steps.build.outcome == 'success'
+        uses: actions/configure-pages@v6
 
-      - uses: actions/upload-pages-artifact@v5
+      - if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs
 
   deploy:
     needs: refresh
+    if: always() && needs.refresh.result != 'cancelled'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

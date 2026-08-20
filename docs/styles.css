@@ -542,3 +542,79 @@ th.group { text-align: center; border-left: 1px solid var(--border-soft); }
   .notes-index { flex-direction: row; overflow-x: auto; }
   .ask-form { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---------- portfolio ---------- */
+
+.pf-top {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.pf-block {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.pf-block h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-faint);
+  font-weight: 620;
+}
+.pf-lede { margin: 0 0 12px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+
+.pf-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-faint); margin: 0 0 8px; }
+
+/* A tilt bar reads against a marked midpoint: 0.5 is the middle of the
+   board, and the distance from it is the whole message. */
+.tilt { margin-bottom: 14px; }
+.tilt-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; margin-bottom: 5px; }
+.tilt-name { color: var(--text); font-weight: 600; }
+.tilt-val { font-family: var(--mono); }
+.tilt-track {
+  position: relative;
+  height: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.tilt-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--text-faint); opacity: 0.6; }
+.tilt-fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; opacity: 0.8; }
+.tilt-fill.pos { background: var(--up); }
+.tilt-fill.neg { background: var(--warn); }
+.tilt-eq { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--accent); border-radius: 1px; }
+.tilt-foot { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-faint); margin-top: 5px; }
+
+.sector-row { display: grid; grid-template-columns: 96px 1fr 46px; gap: 8px; align-items: center; margin-bottom: 7px; font-size: 12px; }
+.sector-row .lab { color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sector-row .val { font-family: var(--mono); text-align: right; }
+.sector-bar { height: 7px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; position: relative; }
+.sector-bar > span { position: absolute; inset: 0 auto 0 0; background: var(--accent); opacity: 0.7; border-radius: 3px; }
+
+.pf-notes { margin-top: 16px; max-width: 100ch; }
+.pf-notes p {
+  margin: 0 0 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+.pf-explain {
+  margin-top: 22px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.pf-explain summary { cursor: pointer; font-size: 12.5px; color: var(--accent); font-weight: 600; }
+.pf-explain summary::marker { color: var(--text-faint); }
+.pf-explain-body { margin-top: 12px; max-width: 92ch; font-size: 13px; line-height: 1.65; color: var(--text-dim); }
+.pf-explain-body p { margin: 0 0 11px; }
+.pf-explain-body strong { color: var(--text); }

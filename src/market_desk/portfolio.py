@@ -39,7 +39,10 @@ import yaml
 from .factors import FactorView
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_HOLDINGS = REPO_ROOT / "config" / "holdings.local.yml"
+# Weights only, committed — what the published dashboard reads.
+PUBLIC_HOLDINGS = REPO_ROOT / "config" / "holdings.yml"
+# Dollar values and cost basis, gitignored — overlaid only for local answers.
+LOCAL_HOLDINGS = REPO_ROOT / "config" / "holdings.local.yml"
 
 
 @dataclass(frozen=True)
@@ -75,15 +78,44 @@ class Holdings:
         return sum(p.exposure or 0.0 for p in self.positions)
 
 
-def load_holdings(path: Optional[Path] = None) -> Holdings:
-    """Read the local position file. Absent is normal, not an error state."""
-    path = Path(path) if path else DEFAULT_HOLDINGS
+def _read(path: Path) -> Optional[dict]:
     if not path.exists():
-        return Holdings(error=f"no holdings file at {path.name}")
+        return None
     try:
-        raw = yaml.safe_load(path.read_text()) or {}
-    except Exception as exc:                          # noqa: BLE001
-        return Holdings(error=f"unreadable holdings file: {exc}")
+        return yaml.safe_load(path.read_text()) or {}
+    except Exception:                                 # noqa: BLE001
+        return None
+
+
+def load_holdings(path: Optional[Path] = None,
+                  include_local: bool = True) -> Holdings:
+    """Read positions: public weights, optionally overlaid with local detail.
+
+    ``include_local=False`` is what the payload builder uses — it guarantees
+    no dollar figure can reach ``docs/`` even by accident, rather than
+    relying on the writer to remember to strip them.
+    """
+    if path is not None:
+        raw = _read(Path(path))
+        if raw is None:
+            return Holdings(error=f"no holdings file at {Path(path).name}")
+    else:
+        raw = _read(PUBLIC_HOLDINGS)
+        if raw is None:
+            return Holdings(error="no config/holdings.yml")
+        if include_local:
+            local = _read(LOCAL_HOLDINGS)
+            if local:
+                # Local detail is keyed by symbol and merged field-wise, so a
+                # position present publicly but absent locally keeps its
+                # weight rather than vanishing.
+                detail = {p.get("symbol"): p for p in (local.get("positions") or [])}
+                for pos in raw.get("positions") or []:
+                    extra = detail.get(pos.get("symbol"))
+                    if extra:
+                        pos.update({k: v for k, v in extra.items() if k != "symbol"})
+                raw["totals"] = local.get("totals") or raw.get("totals") or {}
+                raw["account"] = local.get("account") or raw.get("account")
 
     def parse(rows) -> list[Position]:
         out = []

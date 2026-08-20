@@ -36,6 +36,12 @@
 - **The arrow runs prices → Hawaii economy.** Macro state never enters a price
   forecast. Upstream tested the reverse direction (`markets/fundamentals.py`)
   and got a clean EMH null; re-adding it is re-running a failed experiment.
+- **Position data is split by sensitivity and the split is enforced in code.**
+  `config/holdings.yml` (committed) is tickers + percent weights;
+  `config/holdings.local.yml` (gitignored) adds dollar values and cost basis.
+  `build.py` calls `load_holdings(include_local=False)` so no dollar figure can
+  reach `docs/` even if this file is later edited carelessly — that guarantee
+  has a test. Never widen it: the repo is public and git history is permanent.
 - **`docs/data/` is generated, not committed.** It is in `.gitignore`. If you
   find yourself committing payloads, something is wrong.
 - **Do NOT hand-bump `?v=` on `styles.css` / `app.js`.** The global

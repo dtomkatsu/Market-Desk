@@ -6,7 +6,7 @@
 <title>Market Desk</title>
 <meta name="description" content="Stock tracking dashboard — price, valuation, volume, and factor analytics.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
-<link rel="stylesheet" href="styles.css?v=20260819170735">
+<link rel="stylesheet" href="styles.css?v=20260819181822">
 <script src="vendor/klinecharts.min.js"></script>
 </head>
 <body>
@@ -20,6 +20,7 @@
     <button class="view-tab is-active" data-view="chart" role="tab">Chart</button>
     <button class="view-tab" data-view="screen" role="tab">Screen</button>
     <button class="view-tab" data-view="factors" role="tab">Factors</button>
+    <button class="view-tab" data-view="portfolio" role="tab">Portfolio</button>
     <button class="view-tab" data-view="analysis" role="tab">Analysis</button>
   </nav>
   <div class="stamp">
@@ -232,6 +233,123 @@
     </div>
   </section>
 
+  <!-- Portfolio view -->
+  <section id="view-portfolio" class="view">
+    <div class="screen-head">
+      <h2>Portfolio</h2>
+      <p class="muted" id="pf-stamp"></p>
+    </div>
+    <div id="pf-empty" class="empty" hidden></div>
+
+    <div id="pf-content" hidden>
+      <div class="pf-top">
+        <section class="pf-block">
+          <h3>Factor tilt</h3>
+          <p class="pf-lede">
+            Each holding earns a 0–1 percentile in the tracked cross-section;
+            the bar is the weight-average of those. <strong>0.5 is the middle
+            of the board</strong>, not a neutral market exposure.
+          </p>
+          <div id="pf-tilts"></div>
+          <p class="note faint" id="pf-tilt-note"></p>
+        </section>
+
+        <section class="pf-block">
+          <h3>Concentration</h3>
+          <div class="kv" id="pf-concentration"></div>
+          <p class="note faint">
+            Effective positions is 1/HHI — how many equally-sized holdings
+            would carry the same concentration. It is always at or below the
+            actual count, and well below it when one name dominates.
+          </p>
+        </section>
+
+        <section class="pf-block">
+          <h3>Sector weight</h3>
+          <div id="pf-sectors"></div>
+          <p class="note faint">
+            Share of the equity sleeve. In a book this size, sector
+            concentration is usually the larger exposure.
+          </p>
+        </section>
+      </div>
+
+      <h3 class="pf-h">Positions</h3>
+      <div class="table-wrap">
+        <table id="pf-table">
+          <thead>
+            <tr>
+              <th class="sticky-col">Symbol</th>
+              <th class="num">Weight</th>
+              <th class="num" title="Share of the whole account, cash included">Account</th>
+              <th>Sector</th>
+              <th class="num" title="Percentile of 12-1 formation return in the tracked cross-section">Momentum</th>
+              <th class="num" title="Rank average of EBITDA yield, FCF yield and earnings yield; 1 = cheapest">Value</th>
+              <th class="num" title="Rank average of ROE, ROA, operating margin and low leverage; 1 = highest">Quality</th>
+              <th>Flags</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="pf-notes" class="pf-notes"></div>
+
+      <details class="pf-explain">
+        <summary>How to read momentum, value and quality</summary>
+        <div class="pf-explain-body">
+          <p><strong>Every number here is a rank, not a measurement.</strong>
+          A value score of 0.70 does not mean a stock is 70% cheap — it means
+          that among the companies this dashboard tracks, it sits at the 70th
+          percentile from the expensive end toward the cheap end. Change the
+          tracked universe and the number changes, even if the company does
+          not. That is why the universe size is printed above.</p>
+
+          <p><strong>Momentum</strong> is the 12-1 formation return: how the
+          stock did from twelve months ago until <em>one month ago</em>. The
+          most recent month is deliberately excluded, because short-horizon
+          returns tend to mean-revert — a stock that just jumped is
+          statistically more likely to give some back. Folding that month in
+          would contaminate the signal with the opposite effect. The skipped
+          month is reported separately on the Factors tab, and when it fights
+          the formation trend the position gets a <span class="flag flag-rev">reversal</span> flag.</p>
+
+          <p><strong>Value</strong> is a rank average of three yields —
+          EBITDA yield (the inverse of EV/EBITDA), free-cash-flow yield, and
+          earnings yield (the inverse of P/E). It uses three rather than one
+          on purpose: a low P/E by itself is the classic way into a value
+          trap, since the cheapest-looking company is often cheap because the
+          business is deteriorating. When only one of the three is available
+          the score is marked low-confidence and cannot raise a trap flag.
+          When none is available — a pre-revenue company with no earnings, no
+          EBITDA and no reliable cash flow — the score is blank rather than
+          invented.</p>
+
+          <p><strong>Quality</strong> is a rank average of return on equity,
+          return on assets, operating margin, and low leverage. It is the
+          counterweight to value: profitable, low-debt businesses have
+          historically held up better, particularly in drawdowns. ROA stands
+          in for return on invested capital, which the data source does not
+          publish — a proxy, and labeled as one.</p>
+
+          <p><strong>The two together are the point.</strong> Cheap on its own
+          is not a finding. Cheap <em>and</em> low quality is the
+          cheap-because-dying profile, which earns a
+          <span class="flag flag-trap">trap</span> flag. Cheap and decent
+          quality is the combination the value literature actually describes.
+          The dashboard flags the first and simply reports the second — it
+          does not tell you which to prefer.</p>
+
+          <p><strong>What this is not:</strong> these are not market-wide
+          factor exposures of the kind a factor ETF reports. Those rank
+          thousands of names. This ranks a few dozen you chose to track, so a
+          "top quartile" reading means top of this watchlist and nothing more.
+          Descriptive screens, not signals, and not advice.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
   <!-- Analysis view -->
   <section id="view-analysis" class="view">
     <div class="screen-head">
@@ -256,6 +374,6 @@
   <p><strong>Tracker context, not trading advice.</strong> Nothing here is a recommendation to buy or sell any security. Factor scores are descriptive screens within this small watchlist, not market factor exposures. Figures come from Yahoo Finance via yfinance and can be wrong, stale, or missing.</p>
 </footer>
 
-<script src="app.js?v=20260819170735"></script>
+<script src="app.js?v=20260819181822"></script>
 </body>
 </html>

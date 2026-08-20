@@ -210,3 +210,64 @@ def test_missing_holdings_file_is_not_an_error(tmp_path):
     h = load_holdings(tmp_path / "absent.yml")
     assert h.available is False
     assert "no holdings file" in (h.error or "")
+
+
+def test_portfolio_payload_never_carries_dollar_figures(tmp_path, fixture_result, universe):
+    """The published payload must be weights-only, by construction.
+
+    build.py loads holdings with include_local=False so cost basis and
+    market value cannot reach docs/ even if someone later forgets to strip
+    them here. This asserts the guarantee rather than trusting it.
+    """
+    import json as _json
+    import yaml as _yaml
+    from market_desk.build import write_all
+    from market_desk.factors import FactorView, MomentumMetrics
+    from market_desk import portfolio as pf
+
+    pub = tmp_path / "holdings.yml"
+    loc = tmp_path / "holdings.local.yml"
+    pub.write_text(_yaml.safe_dump({
+        "as_of": "2026-08-19",
+        "positions": [{"symbol": "AAA", "exposure": 0.6},
+                      {"symbol": "ETF", "exposure": 0.4}],
+    }))
+    loc.write_text(_yaml.safe_dump({
+        "positions": [{"symbol": "AAA", "market_value": 123456.78,
+                       "cost_basis": 99999.11}],
+        "totals": {"market_value": 222222.22},
+    }))
+
+    original_pub, original_loc = pf.PUBLIC_HOLDINGS, pf.LOCAL_HOLDINGS
+    pf.PUBLIC_HOLDINGS, pf.LOCAL_HOLDINGS = pub, loc
+    try:
+        views = {
+            "AAA": FactorView("AAA", False, 20, MomentumMetrics(0.5), 0.8,
+                              value_score=0.7, quality_score=0.6),
+            "ETF": FactorView("ETF", True, 20, MomentumMetrics(0.1)),
+        }
+        write_all(universe, fixture_result, {}, {}, MacroOverlay(),
+                  factor_views=views, data_dir=tmp_path)
+        blob = (tmp_path / "portfolio.json").read_text()
+        payload = _json.loads(blob)
+    finally:
+        pf.PUBLIC_HOLDINGS, pf.LOCAL_HOLDINGS = original_pub, original_loc
+
+    assert payload["n_positions"] == 2
+    for forbidden in ("123456.78", "99999.11", "222222.22",
+                      "market_value", "cost_basis"):
+        assert forbidden not in blob, f"{forbidden} leaked into the public payload"
+
+
+def test_portfolio_payload_absent_without_holdings(tmp_path, fixture_result, universe):
+    import json as _json
+    from market_desk.build import write_all
+    from market_desk import portfolio as pf
+
+    original = pf.PUBLIC_HOLDINGS
+    pf.PUBLIC_HOLDINGS = tmp_path / "nope.yml"
+    try:
+        write_all(universe, fixture_result, {}, {}, MacroOverlay(), data_dir=tmp_path)
+    finally:
+        pf.PUBLIC_HOLDINGS = original
+    assert _json.loads((tmp_path / "portfolio.json").read_text()) == {"available": False}

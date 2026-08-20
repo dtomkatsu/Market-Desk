@@ -34,6 +34,7 @@ const state = {
   filter: '',
   notes: [],
   activeNote: null,
+  portfolio: null,
   askReady: false,
   askBusy: false,
 };
@@ -96,11 +97,13 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
 
 async function boot() {
   try {
-    const [index, meta, notes] = await Promise.all([
+    const [index, meta, notes, portfolio] = await Promise.all([
       fetch('data/index.json?t=' + Date.now()).then((r) => r.json()),
       fetch('data/meta.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
       fetch('data/notes.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
+      fetch('data/portfolio.json?t=' + Date.now()).then((r) => r.json()).catch(() => null),
     ]);
+    state.portfolio = (portfolio && portfolio.positions) ? portfolio : null;
     state.index = index;
     state.meta = meta;
     state.notes = (notes && notes.notes) || [];
@@ -121,6 +124,7 @@ async function boot() {
   renderScreen();
   renderFactors();
   renderNotes();
+  renderPortfolio();
   wireControls();
   probeAsk();
 
@@ -967,6 +971,124 @@ async function askClaude(question) {
   }
 }
 
+/* ---------------- portfolio ---------------- */
+
+/** One factor tilt bar, drawn against a marked 0.5 midpoint. */
+function tiltBar(label, weighted, equal, lowLabel, highLabel) {
+  if (weighted == null) {
+    return `<div class="tilt">
+      <div class="tilt-head"><span class="tilt-name">${esc(label)}</span>
+      <span class="tilt-val faint">no score</span></div>
+      <div class="tilt-track"><div class="tilt-mid"></div></div>
+      <div class="tilt-foot"><span>no holding carried this metric</span></div>
+    </div>`;
+  }
+  const pct = Math.round(weighted * 100);
+  const from = Math.min(50, pct);
+  const width = Math.abs(pct - 50);
+  const cls = weighted >= 0.5 ? 'pos' : 'neg';
+  const eq = equal == null ? '' :
+    `<div class="tilt-eq" style="left:calc(${Math.round(equal * 100)}% - 1px)" title="equal-weighted: ${equal.toFixed(2)}"></div>`;
+  const gap = equal == null ? '' :
+    ` · sizing moves it ${weighted >= equal ? '+' : ''}${(weighted - equal).toFixed(2)} vs equal-weight`;
+  return `<div class="tilt">
+    <div class="tilt-head">
+      <span class="tilt-name">${esc(label)}</span>
+      <span class="tilt-val">${weighted.toFixed(2)}</span>
+    </div>
+    <div class="tilt-track">
+      <div class="tilt-fill ${cls}" style="left:${from}%;width:${width}%"></div>
+      <div class="tilt-mid"></div>
+      ${eq}
+    </div>
+    <div class="tilt-foot">
+      <span>${esc(lowLabel)}</span>
+      <span>${esc(highLabel)}</span>
+    </div>
+    <div class="tilt-foot"><span class="faint">0.5 = middle of the board${gap}</span></div>
+  </div>`;
+}
+
+function renderPortfolio() {
+  const pf = state.portfolio;
+  const empty = el('pf-empty');
+  const content = el('pf-content');
+
+  if (!pf) {
+    content.hidden = true;
+    empty.hidden = false;
+    empty.innerHTML =
+      'No portfolio configured. Add positions to <code>config/holdings.yml</code> ' +
+      '(tickers and percent weights) and re-run <code>python scripts/refresh.py</code>.';
+    return;
+  }
+  empty.hidden = true;
+  content.hidden = false;
+
+  const universeN = (state.rows.find((r) => r.mom_rank != null) || {});
+  const n = state.meta && state.meta.symbols_ok;
+  el('pf-stamp').textContent =
+    `${pf.n_positions} positions as of ${pf.as_of || '—'} · ` +
+    `ranked against the tracked cross-section (${n || '—'} symbols tracked). ` +
+    `Percentiles are watchlist-relative, not market factor exposures.`;
+
+  el('pf-tilts').innerHTML =
+    tiltBar('Momentum', pf.tilts.momentum, pf.tilts.momentum_equal, 'laggards', 'leaders') +
+    tiltBar('Value', pf.tilts.value, pf.tilts.value_equal, 'expensive', 'cheap') +
+    tiltBar('Quality', pf.tilts.quality, pf.tilts.quality_equal, 'weaker', 'stronger');
+
+  el('pf-tilt-note').textContent =
+    'The blue marker is where the same holdings would sit equally weighted — ' +
+    'the gap from the bar is what your position sizing is doing.';
+
+  const c = pf.concentration || {};
+  el('pf-concentration').innerHTML = `
+    <dt>Positions</dt><dd>${pf.n_positions}</dd>
+    <dt>Effective positions</dt><dd>${fmt.num(c.effective_positions, 1)}</dd>
+    <dt>Largest holding</dt><dd>${fmt.pct(c.top_weight, 0)}</dd>
+    <dt>HHI</dt><dd>${fmt.num(c.hhi, 3)}</dd>
+    <dt>Cash</dt><dd>${fmt.pct(pf.cash_weight, 0)}</dd>
+    <dt>Equity sleeve</dt><dd>${fmt.pct(pf.equity_weight, 0)}</dd>`;
+
+  const sectors = Object.entries(pf.sector_weights || {}).sort((a, b) => b[1] - a[1]);
+  const maxW = sectors.length ? sectors[0][1] : 1;
+  el('pf-sectors').innerHTML = sectors.map(([name, w]) =>
+    `<div class="sector-row">
+      <span class="lab">${esc(name)}</span>
+      <div class="sector-bar"><span style="width:${Math.round((w / maxW) * 100)}%"></span></div>
+      <span class="val">${fmt.pct(w, 0)}</span>
+    </div>`).join('');
+
+  el('pf-table').querySelector('tbody').innerHTML = (pf.positions || []).map((p) => {
+    const flags = [];
+    if (p.value_trap) flags.push('<span class="flag flag-trap">trap</span>');
+    if (p.reversal_tension) flags.push('<span class="flag flag-rev">reversal</span>');
+    if (!p.scored) flags.push('<span class="flag flag-fund">unscored</span>');
+    const score = (v) => v == null
+      ? '<span class="faint" title="no usable metric">—</span>'
+      : v.toFixed(2);
+    return `<tr data-symbol="${esc(p.symbol)}">
+      <td class="sym sticky-col">${esc(p.symbol)}</td>
+      <td class="num">${fmt.pct(p.weight, 1)}</td>
+      <td class="num faint">${fmt.pct(p.account_weight, 1)}</td>
+      <td class="name">${esc(p.sector || '—')}</td>
+      <td class="num">${score(p.momentum_rank)}</td>
+      <td class="num">${score(p.value_score)}</td>
+      <td class="num">${score(p.quality_score)}</td>
+      <td>${flags.join(' ')}</td>
+    </tr>`;
+  }).join('');
+
+  el('pf-table').querySelectorAll('tbody tr').forEach((tr) => {
+    tr.addEventListener('click', () => {
+      selectSymbol(tr.dataset.symbol);
+      switchView('chart');
+    });
+  });
+
+  el('pf-notes').innerHTML = (pf.notes || []).map((t) => `<p>${esc(t)}</p>`).join('');
+}
+
 /* ---------------- analysis notes ---------------- */
 
 function renderNotes() {
@@ -1007,7 +1129,7 @@ function showNote(date) {
 
 function switchView(view) {
   document.querySelectorAll('.view-tab').forEach((b) => b.classList.toggle('is-active', b.dataset.view === view));
-  for (const id of ['chart', 'screen', 'factors', 'analysis']) {
+  for (const id of ['chart', 'screen', 'factors', 'portfolio', 'analysis']) {
     el('view-' + id).classList.toggle('is-active', id === view);
   }
   if (view === 'chart' && chartState.chart) {

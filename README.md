@@ -62,6 +62,19 @@ cross-sectional within this small watchlist, not the market-wide cross-section
 the academic evidence is built on, and composites are withheld entirely below
 five companies. Descriptive screens, not signals.
 
+**Portfolio.** A Portfolio tab reading `config/holdings.yml`: weighted vs
+equal-weighted factor tilt (the gap is what position sizing is doing),
+concentration via HHI and effective position count, sector weight, and a
+per-position factor table. Holdings are scored against the **full tracked
+cross-section, never against each other** — five names ranked among themselves
+would always put someone in the "cheapest quintile" by construction.
+
+Position data is split by sensitivity: `config/holdings.yml` holds tickers and
+percent weights and is committed; `config/holdings.local.yml` holds dollar
+values, cost basis and unrealized P/L and is gitignored. The payload builder
+loads holdings with `include_local=False`, so dollar figures cannot reach
+`docs/` even by accident — there is a test asserting it.
+
 **Claude, two ways.**
 
 *Daily notes* — Claude reads the rebuilt payloads each trading day and writes
@@ -174,6 +187,7 @@ src/market_desk/
   volume.py               RVOL, OBV, VWAP, A/D, divergence — pure functions
   valuation.py            peer groups and percentile ranks
   factors.py              momentum / value / quality cross-sections
+  portfolio.py            portfolio exposure over held positions
   forecast.py             bridge to Census-Forecaster's damped-drift forecaster
   macro.py                the Hawaii lead-signal overlay
   build.py                assemble docs/data/*.json

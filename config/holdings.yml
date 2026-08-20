@@ -1,0 +1,42 @@
+# Portfolio positions — weights only, safe to publish.
+#
+# The split is deliberate:
+#   * this file      — tickers and percent-of-account weights. Committed, and
+#                      what the published dashboard's Portfolio tab reads.
+#   * holdings.local.yml — dollar values, cost basis, unrealized P/L. Gitignored.
+#                      The repo is public and git history is permanent, so an
+#                      account balance pushed once cannot be unpublished.
+#
+# Percentages describe allocation without disclosing size: 24% of an account
+# means the same whether the account holds $8k or $8M.
+#
+# Source: Yahoo Finance → linked Fidelity Investments INDIVIDUAL account,
+# read from the signed-in session on 2026-08-19. Yahoo exposes no API for a
+# linked-brokerage portfolio, so refreshing this means re-reading that page.
+
+as_of: "2026-08-19"
+
+positions:
+  - symbol: CMPS
+    name: COMPASS Pathways plc
+    exposure: 0.2415
+  - symbol: XYL
+    name: Xylem Inc.
+    exposure: 0.2271
+  - symbol: TT
+    name: Trane Technologies plc
+    exposure: 0.2094
+  - symbol: NXT
+    name: Nextpower Inc.
+    exposure: 0.1059
+  - symbol: SU
+    name: Suncor Energy Inc.
+    exposure: 0.0357
+
+# Cash sweep. Excluded from factor math — it is not an equity — but reported,
+# because a book that is 18% money-market has a materially different profile
+# than its equity sleeve alone suggests.
+cash:
+  - symbol: SPAXX
+    name: Fidelity Government Money Market
+    exposure: 0.1804

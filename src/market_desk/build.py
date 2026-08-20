@@ -32,6 +32,7 @@ from .indicators import (
     pct_change, range_position, rsi, sma,
 )
 from .macro import MacroOverlay, summarize_ticker
+from .portfolio import analyze as analyze_portfolio, load_holdings
 from .valuation import ValuationView, describe_rank
 from .volume import (
     accumulation_distribution, dollar_volume, obv, price_volume_divergence,
@@ -352,6 +353,62 @@ def write_all(universe: Universe, result: FetchResult,
             json.dumps(payload, separators=(",", ":"))
         )
 
+    # Portfolio payload. include_local=False is a hard guarantee, not a
+    # convention: dollar values and cost basis cannot reach docs/ even if
+    # someone later forgets to strip them here.
+    portfolio_payload = None
+    holdings = load_holdings(include_local=False)
+    if holdings.available and factor_views:
+        sectors = {r["symbol"]: r.get("sector") for r in rows}
+        pa = analyze_portfolio(holdings, factor_views, sectors)
+        portfolio_payload = {
+            "as_of": pa.as_of,
+            "n_positions": pa.n_positions,
+            "cash_weight": _round(pa.cash_weight, 4),
+            "equity_weight": _round(pa.equity_weight, 4),
+            "tilts": {
+                "momentum": _round(pa.momentum_tilt, 3),
+                "value": _round(pa.value_tilt, 3),
+                "quality": _round(pa.quality_tilt, 3),
+                "momentum_equal": _round(pa.momentum_tilt_equal, 3),
+                "value_equal": _round(pa.value_tilt_equal, 3),
+                "quality_equal": _round(pa.quality_tilt_equal, 3),
+            },
+            "concentration": {
+                "hhi": _round(pa.hhi, 4),
+                "top_weight": _round(pa.top_weight, 4),
+                "effective_positions": _round(pa.effective_positions, 2),
+            },
+            "sector_weights": {k: _round(v, 4) for k, v in pa.sector_weights.items()},
+            "trap_weight": _round(pa.trap_weight, 4),
+            "reversal_weight": _round(pa.reversal_weight, 4),
+            "unscored_weight": _round(pa.unscored_weight, 4),
+            "positions": [
+                {
+                    "symbol": r["symbol"], "name": r["name"],
+                    "weight": _round(r["weight"], 4),
+                    "account_weight": _round(r["account_weight"], 4),
+                    "sector": r["sector"],
+                    "momentum_rank": _round(r["momentum_rank"], 3),
+                    "value_score": _round(r["value_score"], 3),
+                    "quality_score": _round(r["quality_score"], 3),
+                    "value_trap": r["value_trap"],
+                    "reversal_tension": r["reversal_tension"],
+                    "scored": r["scored"],
+                    "note": r.get("note"),
+                }
+                for r in pa.rows
+            ],
+            "notes": pa.notes,
+            "cash": [
+                {"symbol": c.symbol, "name": c.name, "exposure": _round(c.exposure, 4)}
+                for c in holdings.cash
+            ],
+        }
+    (data_dir / "portfolio.json").write_text(
+        json.dumps(portfolio_payload or {"available": False}, separators=(",", ":"))
+    )
+
     notes = collect_notes()
     (data_dir / "notes.json").write_text(
         json.dumps({"notes": notes}, separators=(",", ":"))
@@ -377,6 +434,7 @@ def write_all(universe: Universe, result: FetchResult,
         "symbols_failed": result.failures,
         "forecasts_ok": sum(1 for f in forecasts.values() if f.horizons),
         "notes_count": len(notes),
+        "portfolio": bool(portfolio_payload),
         "forecaster_pin": forecaster_pin,
         "factor_caveat": UNIVERSE_CAVEAT,
         "macro_overlay": {

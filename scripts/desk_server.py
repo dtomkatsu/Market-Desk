@@ -187,7 +187,10 @@ class DeskHandler(SimpleHTTPRequestHandler):
         return self._json(200 if "answer" in result else 502, result)
 
     def log_message(self, fmt, *args):                   # quieter static logs
-        if "/api/" in (args[0] if args else ""):
+        # Check self.path, not the format args: those vary by caller (e.g.
+        # send_error passes an int status code as one arg), so indexing into
+        # them and testing "in" crashes whenever an arg isn't a string.
+        if "/api/" in self.path:
             super().log_message(fmt, *args)
 
 

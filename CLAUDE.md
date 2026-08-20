@@ -74,6 +74,15 @@
   `display: none` alone the chart auto-places into the 38px rail track.
 - **`min-height: 0` on `.layout`** lets the grid collapse below its content, so
   the footer paints on top of the cards. Leave it off.
+- **`SimpleHTTPRequestHandler.log_message`'s format args are not always
+  strings.** `send_error` passes an int status code as one of them, so
+  filtering log noise by indexing into `args` and testing `in` crashes on
+  every non-string caller. Check `self.path` instead — always a string,
+  always present during a request.
+- **`~/.zshrc` is not sourced by tool-invoked (non-interactive) shells** —
+  only by interactive ones. A Bash tool call that needs
+  `CLAUDE_CODE_OAUTH_TOKEN` from the profile must `source ~/.zshrc` first;
+  a fresh Terminal.app window picks it up automatically.
 - **`dividendYield` from yfinance is in PERCENT** (0.46 means 0.46%). Use
   `trailingAnnualDividendYield`, which is a true fraction and is computed from
   dividends actually paid.

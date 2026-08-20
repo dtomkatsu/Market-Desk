@@ -30,8 +30,10 @@
   and got a clean EMH null; re-adding it is re-running a failed experiment.
 - **`docs/data/` is generated, not committed.** It is in `.gitignore`. If you
   find yourself committing payloads, something is wrong.
-- **Bump `?v=` on `styles.css` / `app.js` in `docs/index.html`** after editing
-  either, or Pages serves the cached copy.
+- **Do NOT hand-bump `?v=` on `styles.css` / `app.js`.** The global
+  `core.hooksPath` pre-commit hook rewrites both query strings to a fresh
+  timestamp on every commit that touches them. Editing them by hand just
+  fights the hook.
 - **Tests must pass before committing.** `python -m pytest tests/ -q`.
 
 ## Gotchas already paid for

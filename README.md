@@ -308,6 +308,9 @@ last a year and cannot be renewed non-interactively, so a `token-expiry` job
 opens a reminder issue 30 days out. Update `TOKEN_ISSUED` in the workflow
 whenever you regenerate it.
 
+See [`PREDICTIONS.md`](PREDICTIONS.md) for a full account of what this
+dashboard can and cannot predict, with the evidence behind each claim.
+
 ## Known limitations
 
 - **Yahoo is an unofficial source.** yfinance scrapes undocumented endpoints.

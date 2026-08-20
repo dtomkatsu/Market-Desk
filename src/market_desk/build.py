@@ -32,6 +32,7 @@ from .indicators import (
     pct_change, range_position, rsi, sma,
 )
 from .catalysts import build_catalysts, describe as describe_catalysts
+from .crashrisk import assess as assess_crash, market_state, measure_local_evidence
 from .macro import MacroOverlay, summarize_ticker
 from .volatility import classify_regime, expected_range, validate_regimes
 from .portfolio import analyze as analyze_portfolio, load_holdings
@@ -215,6 +216,77 @@ def build_symbol_payload(symbol: str, result: FetchResult,
         }
 
     return payload
+
+
+# Benchmark for market-state classification, in order of preference. A
+# broad index is the right yardstick; a sector ETF would conflate one
+# industry's trouble with the market's.
+BENCHMARKS = ("SPY", "VTI", "DIA", "QQQ")
+
+
+def _crash_payload(result: FetchResult, history: Optional[dict],
+                   momentum_tilt: Optional[float]) -> Optional[dict]:
+    """Market state, the local evidence for it, and the book's exposure."""
+    benchmark = next((b for b in BENCHMARKS if b in result.bars), None)
+    if benchmark is None:
+        return None
+
+    bars = result.bars[benchmark]
+    dates = [b.date for b in bars]
+    closes = [b.close for b in bars]
+    state = market_state(dates, closes)
+
+    # Drawdown series for the benchmark, keyed by date, for bucketing.
+    drawdowns: dict[str, float] = {}
+    peak = closes[0]
+    for d, c in zip(dates, closes):
+        peak = max(peak, c)
+        drawdowns[d] = c / peak - 1.0
+
+    evidence = None
+    if history:
+        by_date: dict[str, dict[str, float]] = {}
+        for symbol, points in history.items():
+            for point in points:
+                if "m" in point:
+                    by_date.setdefault(point["d"], {})[symbol] = point["m"]
+        evidence = measure_local_evidence(
+            by_date,
+            {s: {b.date: b.close for b in bs} for s, bs in result.bars.items()},
+            {s: [b.date for b in bs] for s, bs in result.bars.items()},
+            drawdowns,
+        )
+
+    risk = assess_crash(state, evidence, momentum_tilt)
+    return {
+        "benchmark": benchmark,
+        "state": None if state is None else {
+            "label": state.label,
+            "drawdown": _round(state.drawdown, 4),
+            "trailing_return": _round(state.trailing_return, 4),
+            "vol_regime": state.vol_regime,
+            "bear": state.bear, "stressed": state.stressed, "panic": state.panic,
+            "detail": state.detail,
+        },
+        "exposure": risk.exposure,
+        "momentum_tilt": _round(momentum_tilt, 3),
+        "notes": risk.notes,
+        "evidence": None if evidence is None else {
+            "horizon_days": evidence.horizon_days,
+            "n_observations": evidence.n_observations,
+            "overall_mean": _round(evidence.overall_mean, 5),
+            "overall_positive": evidence.overall_positive,
+            "verdict": evidence.verdict,
+            "caveat": evidence.caveat,
+            "buckets": [
+                {"label": b.label, "n": b.n,
+                 "mean_spread": _round(b.mean_spread, 5),
+                 "median_spread": _round(b.median_spread, 5),
+                 "positive": b.positive, "conclusive": b.conclusive}
+                for b in evidence.buckets
+            ],
+        },
+    }
 
 
 def _timing_block(symbol: str, bars, closes, result: FetchResult) -> dict:
@@ -428,6 +500,8 @@ def write_all(universe: Universe, result: FetchResult,
             json.dumps(payload, separators=(",", ":"))
         )
 
+    history = history or {}
+
     # Portfolio payload. include_local=False is a hard guarantee, not a
     # convention: dollar values and cost basis cannot reach docs/ even if
     # someone later forgets to strip them here.
@@ -475,6 +549,7 @@ def write_all(universe: Universe, result: FetchResult,
                 for r in pa.rows
             ],
             "notes": pa.notes,
+            "crash_risk": _crash_payload(result, history, pa.momentum_tilt),
             "cash": [
                 {"symbol": c.symbol, "name": c.name, "exposure": _round(c.exposure, 4)}
                 for c in holdings.cash
@@ -521,7 +596,6 @@ def write_all(universe: Universe, result: FetchResult,
                  "indicates direction."),
     }, separators=(",", ":")))
 
-    history = history or {}
     (data_dir / "history.json").write_text(json.dumps({
         "series": history,
         "provenance": {

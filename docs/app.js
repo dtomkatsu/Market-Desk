@@ -1097,7 +1097,51 @@ function renderPortfolio() {
   });
 
   el('pf-notes').innerHTML = (pf.notes || []).map((t) => `<p>${esc(t)}</p>`).join('');
+  renderCrashRisk(pf.crash_risk);
   renderDrift();
+}
+
+/* ---------------- momentum crash risk ---------------- */
+
+function renderCrashRisk(cr) {
+  const body = el('pf-crash').querySelector('.card-body');
+  if (!cr || !cr.state) {
+    body.innerHTML = '<p class="note">No benchmark history available.</p>';
+    return;
+  }
+  const s = cr.state;
+  const e = cr.evidence;
+
+  let html = `<p class="note">
+    <span class="exposure exposure-${esc(cr.exposure)}">${esc(cr.exposure)} exposure</span>
+  </p>
+  <dl class="kv">
+    <dt>Market state</dt><dd>${esc(s.label)}</dd>
+    <dt>Drawdown from peak</dt><dd>${fmt.pct(s.drawdown, 1)}</dd>
+    <dt>Trailing 24-month</dt><dd>${fmt.signedPct(s.trailing_return, 1)}</dd>
+    <dt>Volatility</dt><dd>${esc(s.vol_regime)}</dd>
+    <dt>Your momentum tilt</dt><dd>${fmt.score(cr.momentum_tilt)}</dd>
+  </dl>
+  <p class="note">${esc(s.detail)}</p>`;
+
+  if (e && e.buckets && e.buckets.length) {
+    html += `<table class="ev-table">
+      <thead><tr><th>Market state</th><th>Obs</th><th>1-mo spread</th></tr></thead>
+      <tbody>${e.buckets.map((b) => `
+        <tr class="${b.conclusive ? '' : 'thin'}">
+          <td class="lab">${esc(b.label)}</td>
+          <td class="ev-n">${b.n}</td>
+          <td class="${fmt.cls(b.mean_spread)}">${fmt.signedPct(b.mean_spread, 2)}</td>
+        </tr>`).join('')}</tbody>
+    </table>
+    <p class="note faint">Forward 1-month return of the top momentum tercile minus
+    the bottom, on this watchlist, grouped by how far the market was off its peak.
+    Dimmed rows fall below the sample size needed to read them as a result.</p>`;
+  }
+
+  for (const note of cr.notes || []) html += `<p class="note faint">${esc(note)}</p>`;
+  if (e && e.caveat) html += `<p class="note faint">${esc(e.caveat)}</p>`;
+  body.innerHTML = html;
 }
 
 /* ---------------- factor drift ---------------- */

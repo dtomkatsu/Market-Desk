@@ -670,3 +670,21 @@ tr.unvalidated td:not(.sticky-col) { opacity: 0.55; }
 .cal-soon { color: var(--warn); font-weight: 600; }
 .amp-strong { color: var(--down); font-weight: 600; }
 .amp-weak { color: var(--text-faint); }
+
+/* ---------- crash risk ---------- */
+
+.exposure { display: inline-block; padding: 2px 9px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.exposure-low { background: rgba(38,166,154,0.16); color: #4db6ac; }
+.exposure-moderate { background: rgba(210,153,34,0.16); color: #d4a531; }
+.exposure-elevated { background: rgba(239,83,80,0.16); color: #ef6461; }
+.exposure-unknown { background: var(--bg-input); color: var(--text-faint); }
+
+.ev-table { width: 100%; font-size: 11.5px; margin: 10px 0 6px; border-collapse: collapse; }
+.ev-table th { background: transparent; border: none; padding: 3px 6px 3px 0; position: static;
+               font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+.ev-table td { border: none; padding: 3px 6px 3px 0; font-family: var(--mono); white-space: nowrap; }
+.ev-table td.lab { font-family: var(--sans); color: var(--text-dim); }
+/* A bucket below the sample-size floor is dimmed: the number is shown, but
+   it must not read as a result. */
+.ev-table tr.thin td { opacity: 0.5; }
+.ev-n { color: var(--text-faint); }

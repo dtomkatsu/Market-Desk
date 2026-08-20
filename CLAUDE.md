@@ -65,6 +65,16 @@
   confirms on ~19 of 44 series here and shows no separation on 12. The
   verdict must travel with the label everywhere it is displayed, and
   unvalidated rows are dimmed rather than shown as signal.
+- **The momentum-crash condition is imported, not validated here — say so.**
+  Its defining events (1932, 2009) are decades apart; a five-year watchlist
+  cannot test it. `MIN_BUCKET` (25) gates whether a conditional result may be
+  read as a finding, and this repo's deep-drawdown bucket holds 6. Never
+  promote a thin bucket to a conclusion because its sign looks right.
+- **Volatility regimes need an absolute floor, not just a percentile.** A
+  purely relative classifier calls a cash-like instrument "turbulent" at 0.06%
+  daily vol because that is still the top of its own distribution.
+  `MIN_TURBULENT_ANNUAL_VOL` (3%) catches it; nothing real in this universe
+  is near it (lowest is TLT at ~11%).
 - **`docs/data/` is generated, not committed.** It is in `.gitignore`. If you
   find yourself committing payloads, something is wrong.
 - **Do NOT hand-bump `?v=` on `styles.css` / `app.js`.** The global

@@ -121,6 +121,31 @@ Deliberately absent: options-implied moves. The chains for this universe are
 too thin to trust — a probe returned nine contracts for one holding with an
 implied volatility of 0.00001.
 
+**Momentum crash risk.** Momentum fails violently rather than gradually.
+Daniel & Moskowitz (2016) document that the crashes occur in an identifiable
+state — after sustained declines, with elevated volatility, worst on a
+rebound. The Portfolio tab classifies the benchmark's state on those axes and
+combines it with the book's own momentum tilt, since exposure is the product
+of the two: a neutral book in a panic has little to reverse.
+
+The provenance is kept explicit, because it cannot be otherwise. The crash
+condition is **imported from published research, not validated on this data**
+— the defining events are decades apart and a five-year watchlist contains
+none of them. What the local history does say is reported with its sample size
+attached, and buckets below the floor are dimmed in the UI:
+
+| market state | obs | 1-mo winners−losers |
+|---|---|---|
+| near highs | 30 | +0.27% |
+| moderate drawdown | 10 | +3.14% |
+| deep drawdown | 6 | −0.43% |
+
+The sign on the last row is what the literature predicts. Six observations is
+not evidence, and the payload says `insufficient sample` rather than letting a
+suggestive number read as confirmation. A long-only book also carries a muted
+version of the published effect, which measures a long-short strategy where
+the crash lands mostly on the short leg.
+
 **Claude, two ways.**
 
 *Daily notes* — Claude reads the rebuilt payloads each trading day and writes
@@ -237,6 +262,7 @@ src/market_desk/
   history.py              factor drift: backfilled momentum + live snapshots
   volatility.py           EWMA regime, expected range, walk-forward validation
   catalysts.py            earnings calendar + measured reaction size
+  crashrisk.py            market state + momentum-tilt exposure
   forecast.py             bridge to Census-Forecaster's damped-drift forecaster
   macro.py                the Hawaii lead-signal overlay
   build.py                assemble docs/data/*.json

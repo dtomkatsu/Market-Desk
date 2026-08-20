@@ -56,6 +56,15 @@ REGIME_WINDOW = 252
 QUIET_PCTL = 0.33
 TURBULENT_PCTL = 0.67
 
+# Absolute floor below which "turbulent" is meaningless. A purely relative
+# classifier will happily call a cash-like instrument turbulent at 0.06%
+# daily volatility, because that is still the top of its own distribution —
+# technically true and practically nonsense. Nothing real in an equity
+# universe sits below 3% annualized (the calmest bond ETF here is ~11%), so
+# this only catches degenerate series such as a stable-value or money-market
+# holding.
+MIN_TURBULENT_ANNUAL_VOL = 0.03
+
 # Minimum history before any of this is meaningful.
 MIN_OBS = 60
 
@@ -132,6 +141,11 @@ def classify_regime(closes: Sequence[float],
     if pctl is None:
         return Regime("unknown", None, current, annual,
                       "not enough history to place volatility in its own distribution")
+    if annual < MIN_TURBULENT_ANNUAL_VOL:
+        return Regime("quiet", pctl, current, annual,
+                      f"Annualized volatility is {annual * 100:.1f}% — cash-like. "
+                      "Too small for the regime distinction to mean anything, "
+                      "whatever its percentile.")
     if pctl <= QUIET_PCTL:
         label = "quiet"
         detail = ("Volatility is in the calmest third of this stock's own "

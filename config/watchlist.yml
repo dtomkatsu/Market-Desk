@@ -36,23 +36,48 @@ tiers:
       - TLT    # 20y+ Treasuries — the rates leg
       - GLD    # Gold
 
+  holdings:
+    label: Holdings
+    note: >-
+      Positions currently held, imported from the linked Fidelity account in
+      Yahoo Finance on 2026-08-19. Tickers only — position sizes, dollar
+      values and cost basis live in config/holdings.local.yml, which is
+      gitignored and never published. SPAXX is deliberately absent: it is a
+      government money-market sweep, i.e. cash, and would only add a junk row
+      to a board about equities. It is recorded as cash in the local file.
+    symbols:
+      - TT     # Trane Technologies
+      - CMPS   # COMPASS Pathways
+      - XYL    # Xylem
+      - NXT    # Nextpower
+      - SU     # Suncor Energy
+
   watchlist:
     label: Watchlist
     note: >-
-      Your own tracked names. Seeded with large, liquid US listings so the
-      dashboard has something real to show on first run; replace them with
-      your Yahoo Finance list.
+      The Yahoo Finance "New list" watchlist, imported 2026-08-19. Names that
+      are also held appear in the Holdings tier above rather than here — a
+      symbol belongs to exactly one tier, and the first to claim it wins.
     symbols:
-      - AAPL
-      - MSFT
-      - NVDA
-      - GOOGL
-      - AMZN
-      - META
-      - BRK-B
-      - JPM
-      - COST
-      - UNH
+      - LLY    # Eli Lilly
+      - AMD    # Advanced Micro Devices
+      - DGII   # Digi International
+      - IOT    # Samsara
+      - HLIT   # Harmonic
+      - MCHP   # Microchip Technology
+      - ALAB   # Astera Labs
+      - MU     # Micron Technology
+      - SPCX   # Space Exploration Technologies
+      - COST   # Costco
+      - GHRS   # GH Research
+      - RMIX   # Suncrete
+      - TSLA   # Tesla
+      - AAPL   # Apple
+      - GOOG   # Alphabet
+      - NVDA   # NVIDIA
+      - AMZN   # Amazon
+      - MSFT   # Microsoft
+      - META   # Meta Platforms
 
   hawaii:
     label: Hawaii-lead tier

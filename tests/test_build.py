@@ -141,3 +141,72 @@ def test_write_all_emits_notes_json(tmp_path, fixture_result, universe):
     payload = _json.loads((tmp_path / "notes.json").read_text())
     assert "notes" in payload
     assert meta["notes_count"] == len(payload["notes"])
+
+
+# ---------------- portfolio ----------------
+
+def test_portfolio_scores_holdings_against_the_universe_not_each_other(tmp_path):
+    """A 3-position book has no cross-section; ranks must come from outside."""
+    import yaml as _yaml
+    from market_desk.factors import FactorView, MomentumMetrics
+    from market_desk.portfolio import analyze, load_holdings
+
+    (tmp_path / "h.yml").write_text(_yaml.safe_dump({
+        "as_of": "2026-08-19",
+        "positions": [
+            {"symbol": "AAA", "exposure": 0.40},
+            {"symbol": "BBB", "exposure": 0.20},
+        ],
+        "cash": [{"symbol": "CASH", "exposure": 0.40}],
+    }))
+    holdings = load_holdings(tmp_path / "h.yml")
+    assert holdings.available
+    assert holdings.cash_weight == pytest.approx(0.40)
+
+    views = {
+        "AAA": FactorView("AAA", False, 20, MomentumMetrics(0.5), 0.9,
+                          value_score=0.8, quality_score=0.2),
+        "BBB": FactorView("BBB", False, 20, MomentumMetrics(0.1), 0.3,
+                          value_score=0.4, quality_score=0.6),
+    }
+    a = analyze(holdings, views, {"AAA": "Tech", "BBB": "Tech"})
+
+    # Weights renormalize onto the equity sleeve (0.4/0.6 and 0.2/0.6), so
+    # cash does not drag every tilt toward zero.
+    assert a.momentum_tilt == pytest.approx((2 / 3) * 0.9 + (1 / 3) * 0.3)
+    # Equal-weight ignores sizing entirely.
+    assert a.momentum_tilt_equal == pytest.approx((0.9 + 0.3) / 2)
+    assert a.cash_weight == pytest.approx(0.40)
+
+
+def test_portfolio_reports_concentration(tmp_path):
+    import yaml as _yaml
+    from market_desk.portfolio import analyze, load_holdings
+    (tmp_path / "h.yml").write_text(_yaml.safe_dump({
+        "positions": [{"symbol": "BIG", "exposure": 0.9},
+                      {"symbol": "SMALL", "exposure": 0.1}],
+    }))
+    a = analyze(load_holdings(tmp_path / "h.yml"), {}, {})
+    assert a.top_weight == pytest.approx(0.9)
+    assert a.hhi == pytest.approx(0.82)
+    assert a.effective_positions == pytest.approx(1 / 0.82)
+    assert any("Concentrated" in n for n in a.notes)
+
+
+def test_portfolio_flags_unscored_holdings(tmp_path):
+    import yaml as _yaml
+    from market_desk.portfolio import analyze, load_holdings
+    (tmp_path / "h.yml").write_text(_yaml.safe_dump({
+        "positions": [{"symbol": "UNKNOWN", "exposure": 1.0}],
+    }))
+    a = analyze(load_holdings(tmp_path / "h.yml"), {}, {})
+    # Held but absent from the tracked cross-section — reported, not silent.
+    assert a.unscored_weight == pytest.approx(1.0)
+    assert a.momentum_tilt is None
+
+
+def test_missing_holdings_file_is_not_an_error(tmp_path):
+    from market_desk.portfolio import load_holdings
+    h = load_holdings(tmp_path / "absent.yml")
+    assert h.available is False
+    assert "no holdings file" in (h.error or "")

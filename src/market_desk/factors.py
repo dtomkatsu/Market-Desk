@@ -124,6 +124,7 @@ class FactorView:
     earnings_yield: Optional[float] = None      # 1 / trailing P/E
     value_score: Optional[float] = None         # mean of available yield ranks; 1 = cheapest
     value_metrics_used: tuple[str, ...] = ()
+    value_low_confidence: bool = False          # composite rests on one metric
 
     # quality inputs
     roe: Optional[float] = None
@@ -132,6 +133,7 @@ class FactorView:
     debt_to_equity: Optional[float] = None
     quality_score: Optional[float] = None       # mean of available ranks; 1 = highest quality
     quality_metrics_used: tuple[str, ...] = ()
+    quality_low_confidence: bool = False
 
     value_trap: bool = False
     reversal_tension: bool = False              # last month fought the 12-1 signal
@@ -156,7 +158,20 @@ def _pct_rank(value: Optional[float], population: list[float]) -> Optional[float
 
 
 def _fcf_yield(f: Fundamentals) -> Optional[float]:
+    """Free-cash-flow yield, with a sanity gate on the FCF figure itself.
+
+    Free cash flow is operating cash flow minus capital expenditure, and
+    capex cannot be negative — so FCF materially ABOVE operating cash flow
+    is arithmetically impossible and means the reported figure is wrong.
+    Yahoo does report such values: in 2026-08 it gave CMPS a free cash flow
+    of +$250M against operating cash flow of -$161M, which made a
+    cash-burning clinical-stage biotech screen as the cheapest name on the
+    board. A bad "cheap" reading is the single most dangerous error a value
+    screen can make, so an impossible figure is dropped rather than ranked.
+    """
     if f.free_cashflow is None or not f.market_cap:
+        return None
+    if f.operating_cashflow is not None and f.free_cashflow > f.operating_cashflow:
         return None
     return f.free_cashflow / f.market_cap
 
@@ -254,6 +269,7 @@ def build_factor_views(
             view.ev_ebitda = f.ev_ebitda
             view.value_score, view.value_metrics_used = composite(
                 value_inputs[symbol], value_pops)
+            view.value_low_confidence = len(view.value_metrics_used) < 2
 
             view.roe = f.return_on_equity
             view.roa = f.return_on_assets
@@ -261,10 +277,17 @@ def build_factor_views(
             view.debt_to_equity = f.debt_to_equity
             view.quality_score, view.quality_metrics_used = composite(
                 quality_inputs[symbol], quality_pops)
+            view.quality_low_confidence = len(view.quality_metrics_used) < 2
 
             # -- the documented interactions --
+            # A trap call asserts "cheap AND low quality". If the cheap half
+            # rests on a single ratio there is no multi-ratio corroboration
+            # behind it, which is exactly the P/E-only failure mode this
+            # module exists to avoid — so the flag is withheld and the
+            # thinness is reported instead.
             if (view.value_score is not None and view.quality_score is not None
-                    and view.value_score >= 2 / 3 and view.quality_score <= 1 / 3):
+                    and view.value_score >= 2 / 3 and view.quality_score <= 1 / 3
+                    and not view.value_low_confidence):
                 view.value_trap = True
                 notes.append(
                     "Value-trap flag: screens cheap (top third on value) while "
@@ -289,6 +312,21 @@ def build_factor_views(
                     "return. Short-horizon returns mean-revert, which is why "
                     "the formation window skips them — read the 12-1 number, "
                     "not the last month."
+                )
+            if view.value_score is None and not view.value_metrics_used:
+                notes.append(
+                    "No usable valuation metric: no EV/EBITDA, no positive "
+                    "trailing P/E, and no trustworthy free-cash-flow figure. "
+                    "For a pre-revenue or loss-making company that is the "
+                    "correct answer — it cannot be valued on these multiples, "
+                    "and a score here would be invented rather than measured."
+                )
+            if view.value_low_confidence and view.value_metrics_used:
+                notes.append(
+                    f"Value score rests on a single metric "
+                    f"({view.value_metrics_used[0]}) — treat it as weak "
+                    "evidence, not a valuation. The multi-ratio construction "
+                    "exists precisely so one number never carries the call."
                 )
             if view.value_metrics_used and "ebitda_yield" not in view.value_metrics_used:
                 if (f.sector or "") == "Financial Services":

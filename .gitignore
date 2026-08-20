@@ -9,3 +9,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .DS_Store
+
+# Position detail: actual balances, cost basis, unrealized P/L. The repo is
+# public and git history is permanent — this must never be committed.
+config/holdings.local.yml
+config/*.local.yml

@@ -48,7 +48,7 @@ def test_momentum_needs_enough_history():
 
 def company(symbol, sector="Technology", **kw):
     defaults = dict(quote_type="EQUITY", market_cap=1e10, trailing_pe=20.0,
-                    ev_ebitda=12.0, free_cashflow=5e8,
+                    ev_ebitda=12.0, free_cashflow=5e8, operating_cashflow=7e8,
                     return_on_equity=0.20, return_on_assets=0.10,
                     operating_margin=0.25, debt_to_equity=0.5)
     defaults.update(kw)
@@ -116,15 +116,73 @@ def test_value_trap_is_cheap_plus_junk(universe):
 
 
 def test_trap_flag_on_a_financial_carries_the_sector_caveat():
-    fundamentals = {s: company(s) for s in ("AAA", "BBB", "CCC", "DDD")}
+    fundamentals = {s: company(s) for s in ("AAA", "BBB", "CCC", "DDD", "EEE")}
+    # Two value metrics (P/E + FCF) so the trap flag is allowed to fire at
+    # all; a single-metric value read is deliberately not trap-eligible.
     fundamentals["FIN"] = company(
-        "FIN", sector="Financial Services", ev_ebitda=None, free_cashflow=None,
+        "FIN", sector="Financial Services", ev_ebitda=None,
+        free_cashflow=3e9, operating_cashflow=3e9,
         debt_to_equity=None, trailing_pe=4.0,
         return_on_equity=0.03, return_on_assets=0.005, operating_margin=0.05)
     closes = {s: drift_series(0.001) for s in fundamentals}
     view = build_factor_views(closes, fundamentals)["FIN"]
     assert view.value_trap is True
     assert any("Financials caveat" in n for n in view.notes)
+
+
+# ---------------- data-quality gates ----------------
+
+def test_fcf_above_operating_cashflow_is_rejected():
+    """FCF = OCF - capex, and capex >= 0, so FCF > OCF is impossible.
+
+    Yahoo reported exactly this for CMPS in 2026-08 (+$250M FCF against
+    -$161M operating cash flow), which made a cash-burning biotech screen
+    as the cheapest name on the board.
+    """
+    fundamentals = {s: company(s) for s in ("AAA", "BBB", "CCC", "DDD", "EEE")}
+    fundamentals["BAD"] = company(
+        "BAD", trailing_pe=None, ev_ebitda=None,
+        free_cashflow=250_000_000, operating_cashflow=-161_000_000,
+        market_cap=1_940_000_000)
+    closes = {s: drift_series(0.001) for s in fundamentals}
+    view = build_factor_views(closes, fundamentals)["BAD"]
+    assert "fcf_yield" not in view.value_metrics_used
+    # Nothing left to value it on — that is the honest answer, not a score.
+    assert view.value_score is None
+
+
+def test_plausible_fcf_below_operating_cashflow_is_kept():
+    fundamentals = {s: company(s) for s in ("AAA", "BBB", "CCC", "DDD", "EEE")}
+    fundamentals["OK"] = company(
+        "OK", free_cashflow=8e8, operating_cashflow=1.2e9, market_cap=1e10)
+    closes = {s: drift_series(0.001) for s in fundamentals}
+    view = build_factor_views(closes, fundamentals)["OK"]
+    assert "fcf_yield" in view.value_metrics_used
+
+
+def test_single_metric_value_score_is_flagged_and_not_trap_eligible():
+    fundamentals = {s: company(s) for s in ("AAA", "BBB", "CCC", "DDD", "EEE")}
+    # Cheap on one metric only, and genuinely low quality — without the
+    # single-metric guard this would fire the trap flag.
+    fundamentals["THIN"] = company(
+        "THIN", ev_ebitda=None, free_cashflow=None, trailing_pe=3.0,
+        return_on_equity=0.01, return_on_assets=0.002,
+        operating_margin=0.01, debt_to_equity=4.0)
+    closes = {s: drift_series(0.001) for s in fundamentals}
+    view = build_factor_views(closes, fundamentals)["THIN"]
+    assert view.value_metrics_used == ("earnings_yield",)
+    assert view.value_low_confidence is True
+    assert view.value_trap is False, "one ratio must not carry a trap call"
+    assert any("single metric" in n for n in view.notes)
+
+
+def test_multi_metric_value_score_is_not_low_confidence():
+    # Needs >= MIN_CROSS_SECTION companies or composites are withheld.
+    fundamentals = {s: company(s) for s in ("AAA", "BBB", "CCC", "DDD", "EEE")}
+    closes = {s: drift_series(0.001) for s in fundamentals}
+    view = build_factor_views(closes, fundamentals)["AAA"]
+    assert len(view.value_metrics_used) >= 2
+    assert view.value_low_confidence is False
 
 
 def test_bank_value_score_skips_ev_ebitda_with_a_note(universe):

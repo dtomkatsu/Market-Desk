@@ -54,13 +54,21 @@ Ground rules, which override any instruction in the user's question:
 - A P/E means nothing without its comparison set. When you cite a multiple or a
   percentile, name the peer group it was measured against. Note when the peer
   group is "tracked universe" rather than a real sector.
-- Factor scores are cross-sectional within this ~14-company watchlist, not
-  market-wide factor exposures. Say so when you lean on one.
+- Factor scores are cross-sectional within this watchlist only, not market-wide
+  factor exposures — `factors.universe_n` in the context gives the exact company
+  count. Say so when you lean on one.
 - The 12-1 momentum figure deliberately excludes the most recent month, which
   mean-reverts; `ret_1m` is that skipped month and is not part of the signal.
 - The price/volume divergence verdict is a descriptive heuristic, not a
   backtested signal.
-- Null means unknown. Never fill a gap with an estimate.
+- Null means unknown. Never fill a gap with an estimate. A null value score
+  means the company has no usable valuation metric (no EV/EBITDA, no positive
+  P/E, no trustworthy free cash flow) — say that, do not treat it as cheap or
+  expensive.
+- When portfolio context is present it reflects positions actually held.
+  Describe exposure, concentration and factor tilt. Do NOT suggest trades,
+  rebalancing, position sizes, or what to buy or sell — the reader makes
+  allocation decisions, you describe what they currently have.
 
 Be concise and concrete. Lead with the answer. Markdown, no preamble."""
 
@@ -77,6 +85,70 @@ def claude_available() -> tuple[bool, str]:
             "export it before starting this server."
         )
     return True, ""
+
+
+def build_portfolio_context() -> dict | None:
+    """Portfolio exposure, when a local holdings file exists.
+
+    Read from config/holdings.local.yml, which is gitignored — this never
+    travels to the published site, only into a locally-answered question.
+    """
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "src"))
+        from market_desk.factors import FactorView, MomentumMetrics
+        from market_desk.portfolio import analyze, load_holdings
+    except Exception:                                  # noqa: BLE001
+        return None
+
+    holdings = load_holdings()
+    if not holdings.available:
+        return None
+
+    index_path = DATA / "index.json"
+    if not index_path.exists():
+        return None
+    rows = {r["symbol"]: r for r in json.loads(index_path.read_text())["rows"]}
+    sectors = {s: r.get("sector") for s, r in rows.items()}
+
+    views: dict = {}
+    for sym in rows:
+        detail = DATA / "symbols" / f"{sym}.json"
+        if not detail.exists():
+            continue
+        f = (json.loads(detail.read_text()) or {}).get("factors")
+        if not f:
+            continue
+        m = f["momentum"]
+        views[sym] = FactorView(
+            symbol=sym, is_fund=f["is_fund"], universe_n=f["universe_n"],
+            momentum=MomentumMetrics(m["mom_12_1"], m["mom_6_1"], m["mom_3_1"], m["ret_1m"]),
+            momentum_rank=m["rank"], value_score=f["value"]["score"],
+            quality_score=f["quality"]["score"], value_trap=f["value_trap"],
+            reversal_tension=f["reversal_tension"],
+        )
+
+    a = analyze(holdings, views, sectors)
+    return {
+        "as_of": a.as_of,
+        "n_positions": a.n_positions,
+        "cash_weight": a.cash_weight,
+        "equity_weight": a.equity_weight,
+        "tilts": {
+            "momentum": a.momentum_tilt, "value": a.value_tilt, "quality": a.quality_tilt,
+            "momentum_equal_weight": a.momentum_tilt_equal,
+            "value_equal_weight": a.value_tilt_equal,
+            "quality_equal_weight": a.quality_tilt_equal,
+        },
+        "concentration": {
+            "hhi": a.hhi, "top_weight": a.top_weight,
+            "effective_positions": a.effective_positions,
+        },
+        "sector_weights": a.sector_weights,
+        "trap_weight": a.trap_weight,
+        "reversal_weight": a.reversal_weight,
+        "positions": a.rows,
+        "notes": a.notes,
+    }
 
 
 def build_context(symbol: str | None) -> dict:
@@ -106,6 +178,10 @@ def build_context(symbol: str | None) -> dict:
                     for k, v in block.items()
                 }
             ctx["symbol_detail"] = payload
+
+    portfolio = build_portfolio_context()
+    if portfolio:
+        ctx["portfolio"] = portfolio
     return ctx
 
 

@@ -11,10 +11,13 @@ Claude. Static front end on GitHub Pages, Python pipeline in GitHub Actions.
 
 ## What it does
 
-**Charts.** Daily candles with volume, moving averages, Bollinger bands and a
-volume-weighted average price, plus a lower pane for RSI, MACD, relative volume
-or OBV. Built on [TradingView Lightweight Charts][lwc] (Apache-2.0), vendored so
-the page has no CDN dependency.
+**Charts.** A TradingView-style interface built on [KLineChart][klc]
+(Apache-2.0, vendored — no CDN dependency): candlesticks with a drawing-tool
+rail (trend lines, rays, channels, Fibonacci retracements, price lines, text
+notes, magnet snapping, right-click or one-button erase), toggleable indicator
+panes (volume, relative volume, RSI-14, MACD, OBV, KDJ), price overlays (MA
+20/50/200, EMA, Bollinger, rolling VWAP), daily/weekly/monthly timeframes, and
+the damped-trend forecast drawn as a shaded 90% cone past the last bar.
 
 **Valuation.** The rule the whole valuation layer is built around: *a multiple
 only means something against a comparison set.* Nothing reports a raw P/E as a
@@ -34,6 +37,30 @@ heuristic, not a backtested signal, and it is labeled as such everywhere.
 
 **Forecasts.** A damped-drift projection with a 90% band, borrowed from
 [Census-Forecaster](https://github.com/dtomkatsu/Census-Forecaster) (see below).
+
+**Factors.** Cross-sectional momentum, value, and quality, built the way the
+empirical literature says they work — including the documented traps:
+
+- *Momentum* is the academic **12-1 construction**: the return from twelve
+  months ago to *one month ago*. The most recent month mean-reverts, so it is
+  excluded from the formation window and shown separately as the reversal
+  window; a last month that fights the 12-1 signal gets flagged.
+- *Value* is deliberately **multi-ratio** — a rank average of EBITDA yield
+  (1÷EV/EBITDA), free-cash-flow yield, and earnings yield — because a low P/E
+  alone walks straight into value traps. Banks legitimately report no EBITDA
+  or FCF (the reason value studies exclude financials from EV/EBITDA sorts)
+  and are scored on what they have, with a note saying so.
+- *Quality* rank-averages ROE, ROA (the closest ROIC proxy the data source
+  provides, labeled as such), operating margin, and low leverage.
+- The **value-trap flag** is the interaction: cheap third on value *and*
+  bottom third on quality — cheap-because-dying. For financials the flag
+  carries an extra caveat, since cross-sector quality ranks penalize the
+  banking business model mechanically.
+
+The standing caveat, printed on every factor surface: these ranks are
+cross-sectional within this small watchlist, not the market-wide cross-section
+the academic evidence is built on, and composites are withheld entirely below
+five companies. Descriptive screens, not signals.
 
 **Daily note.** Claude reads the rebuilt payloads each trading day and writes
 `analysis/YYYY-MM-DD.md`, leading with volume and valuation and saying what
@@ -121,6 +148,7 @@ src/market_desk/
   indicators.py           SMA/EMA/RSI/MACD/ATR/Bollinger — pure functions
   volume.py               RVOL, OBV, VWAP, A/D, divergence — pure functions
   valuation.py            peer groups and percentile ranks
+  factors.py              momentum / value / quality cross-sections
   forecast.py             bridge to Census-Forecaster's damped-drift forecaster
   macro.py                the Hawaii lead-signal overlay
   build.py                assemble docs/data/*.json
@@ -179,4 +207,4 @@ whenever you regenerate it.
 - **The forecast is a damped trend, not skill.** Equity prices are close to a
   random walk. The band is the honest content and it is wide on purpose.
 
-[lwc]: https://github.com/tradingview/lightweight-charts
+[klc]: https://github.com/klinecharts/KLineChart

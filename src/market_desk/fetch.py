@@ -58,6 +58,18 @@ class Fundamentals:
     earnings_growth: Optional[float] = None
     dividend_yield: Optional[float] = None
     beta: Optional[float] = None
+    # --- factor inputs ---
+    enterprise_value: Optional[float] = None
+    ev_ebitda: Optional[float] = None          # EV / EBITDA, from Yahoo directly
+    free_cashflow: Optional[float] = None      # levered FCF, trailing
+    operating_cashflow: Optional[float] = None
+    return_on_equity: Optional[float] = None   # fraction
+    return_on_assets: Optional[float] = None   # fraction; the ROIC proxy Yahoo gives us
+    debt_to_equity: Optional[float] = None     # normalized to a ratio (Yahoo quotes percent)
+    operating_margin: Optional[float] = None   # fraction
+    gross_margin: Optional[float] = None       # fraction
+    total_debt: Optional[float] = None
+    total_cash: Optional[float] = None
     avg_volume_3m: Optional[float] = None
     shares_outstanding: Optional[float] = None
     fifty_two_week_high: Optional[float] = None
@@ -214,6 +226,20 @@ def fetch_fundamentals(symbols: list[str], pause: float = 0.2) -> dict[str, Fund
             earnings_growth=_clean(info.get("earningsGrowth")),
             dividend_yield=div_yield,
             beta=_clean(info.get("beta")),
+            enterprise_value=_clean(info.get("enterpriseValue")),
+            ev_ebitda=_positive(info.get("enterpriseToEbitda")),
+            free_cashflow=_clean(info.get("freeCashflow")),
+            operating_cashflow=_clean(info.get("operatingCashflow")),
+            return_on_equity=_clean(info.get("returnOnEquity")),
+            return_on_assets=_clean(info.get("returnOnAssets")),
+            # Yahoo quotes debtToEquity in percent (25.8 means 0.258); banks
+            # and funds return None, which stays None.
+            debt_to_equity=(lambda d: d / 100.0 if d is not None else None)(
+                _clean(info.get("debtToEquity"))),
+            operating_margin=_clean(info.get("operatingMargins")),
+            gross_margin=_clean(info.get("grossMargins")),
+            total_debt=_clean(info.get("totalDebt")),
+            total_cash=_clean(info.get("totalCash")),
             avg_volume_3m=_clean(info.get("averageVolume")),
             shares_outstanding=_clean(info.get("sharesOutstanding")),
             fifty_two_week_high=_clean(info.get("fiftyTwoWeekHigh")),

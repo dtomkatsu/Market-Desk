@@ -124,8 +124,22 @@ jobs:
                use `pe_percentile` and `peer_group`, never a raw P/E on its
                own. Call out anything that moved materially between quartiles,
                and any large gap between trailing and forward P/E.
-            3. **What changed since the last note.** Only genuine changes.
-            4. **Hawaii tier**, briefly, if BOH / FHB / HE / MATX did anything
+            3. **Factors.** Each company row carries a cross-sectional factor
+               read: `mom_12_1` (the academic 12-1 formation return — twelve
+               months ago to one month ago, skipping the reversal-prone last
+               month, which is reported separately as `ret_1m`), `mom_rank`,
+               `value_score` (rank-average of EV/EBITDA yield, FCF yield and
+               earnings yield; 1 = cheapest), `quality_score` (ROE, ROA,
+               operating margin, low leverage; 1 = highest), and two flags:
+               `value_trap` (cheap AND bottom-third quality — the
+               cheap-because-dying profile) and `reversal_tension` (last month
+               fought the 12-1 signal). Mention names whose factor standing
+               *changed*, any new or cleared trap flags, and always read a
+               trap flag as caution, never as a buy case. These ranks are
+               within this small watchlist, not the market — say so when you
+               lean on one.
+            4. **What changed since the last note.** Only genuine changes.
+            5. **Hawaii tier**, briefly, if BOH / FHB / HE / MATX did anything
                notable — these are the names Census-Forecaster screens as
                leading indicators for Hawaii's economy.
 

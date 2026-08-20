@@ -25,6 +25,14 @@
   in `requirements.txt` must point at the *same* commit, and that commit must
   exist on the upstream `origin/main` — a local-only SHA passes here and fails
   in CI. Same convention as Cost-of-Living-Tracker.
+- **Factor scores are watchlist-relative, and every surface says so.** The
+  academic momentum/value/quality evidence ranks the whole market; this repo
+  ranks ~14 companies. `MIN_CROSS_SECTION` withholds composites below 5.
+  The 12-1 momentum construction must keep skipping the most recent month
+  (`ret_1m` is the reversal window, reported separately, never folded in),
+  value must stay multi-ratio (EV/EBITDA + FCF yield + earnings yield — a
+  P/E-only sort is the documented value-trap generator), and the trap flag is
+  the value×quality interaction. ROA is a ROIC *proxy* and is labeled as one.
 - **The arrow runs prices → Hawaii economy.** Macro state never enters a price
   forecast. Upstream tested the reverse direction (`markets/fundamentals.py`)
   and got a clean EMH null; re-adding it is re-running a failed experiment.
@@ -38,16 +46,23 @@
 
 ## Gotchas already paid for
 
-- **`autoSize: true` on Lightweight Charts leaves the internal width at 0** in
-  the vendored v4.2.3 build. barSpacing pins to its 0.5 minimum, and both
-  `fitContent()` and `setVisibleLogicalRange()` become no-ops — every series
-  renders squeezed against the right edge. Size the charts explicitly and drive
-  resize with a ResizeObserver.
-- **Chart pane sync must be one-way.** The range-change event fires
-  asynchronously, so a two-way link guarded by a boolean does not hold: the
-  guard is already cleared when the echo arrives and the two charts ratchet
-  each other into a handful of visible bars. The lower pane has
-  `handleScroll: false, handleScale: false` and never writes back.
+- **KLineChart is pinned at v9 (9.8.12) on purpose.** v10 removed
+  `applyNewData` in favor of a `setSymbol`/`setPeriod`/`setDataLoader` model —
+  a full data-flow reshape. Do not "upgrade" the vendored file without
+  rewriting the chart module against the v10 API.
+- **Future overlay points must use `dataIndex`, never `timestamp`.** A
+  timestamp beyond the last bar clamps to the last bar and misplaces the
+  point (verified empirically); `dataIndex` past the end extrapolates
+  linearly. The forecast fan depends on this, which is also why it must be
+  re-created after every `applyNewData` (timeframe switch): dataIndexes shift.
+- **Anything sized while the Browser pane (or tab) is hidden measures 0.**
+  The chart shell reads `clientWidth` in `applyRange`; a toggle fired while
+  hidden computes garbage barSpacing. The ResizeObserver fixes the canvas but
+  not the range state — re-run `applyRange()` after the pane is visible when
+  debugging "everything is squeezed right".
+- **Hiding the drawing rail needs its grid column collapsed too**
+  (`grid-template-columns: minmax(0,1fr)` in the mobile block) — with
+  `display: none` alone the chart auto-places into the 38px rail track.
 - **`min-height: 0` on `.layout`** lets the grid collapse below its content, so
   the footer paints on top of the cards. Leave it off.
 - **`dividendYield` from yfinance is in PERCENT** (0.46 means 0.46%). Use
@@ -59,7 +74,9 @@
 ## Stack
 
 - Python 3.12, stdlib-only transforms (no pandas outside `fetch.py`), pytest.
-- Front end: vanilla JS + vendored TradingView Lightweight Charts 4.2.3.
+- Front end: vanilla JS + vendored KLineChart 9.8.12 (Apache-2.0) — the
+  open-source TradingView-style chart: candle + indicator panes, drawing
+  overlays (trend lines, channels, fibs), magnet snapping.
 - GitHub Actions → GitHub Pages.
 
 ## Source-of-truth docs

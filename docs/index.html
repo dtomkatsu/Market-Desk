@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Market Desk</title>
-<meta name="description" content="Stock tracking dashboard — price, valuation, and volume analytics.">
+<meta name="description" content="Stock tracking dashboard — price, valuation, volume, and factor analytics.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
-<link rel="stylesheet" href="styles.css?v=20260819161500">
-<script src="vendor/lightweight-charts.standalone.production.js"></script>
+<link rel="stylesheet" href="styles.css?v=20260819165534">
+<script src="vendor/klinecharts.min.js"></script>
 </head>
 <body>
 
@@ -19,6 +19,7 @@
   <nav class="views" role="tablist">
     <button class="view-tab is-active" data-view="chart" role="tab">Chart</button>
     <button class="view-tab" data-view="screen" role="tab">Screen</button>
+    <button class="view-tab" data-view="factors" role="tab">Factors</button>
   </nav>
   <div class="stamp">
     <span id="stamp-date">loading…</span>
@@ -38,6 +39,7 @@
         <option value="change_1d">Sort: today's move</option>
         <option value="change_1m">Sort: 1-month move</option>
         <option value="change_1y">Sort: 1-year move</option>
+        <option value="mom_12_1">Sort: 12-1 momentum</option>
         <option value="rvol">Sort: relative volume</option>
         <option value="dollar_volume">Sort: dollar volume</option>
         <option value="trailing_pe">Sort: trailing P/E</option>
@@ -63,6 +65,11 @@
     </div>
 
     <div class="chart-toolbar">
+      <div class="btn-group" id="tf-buttons" role="group" aria-label="Timeframe">
+        <button data-tf="D" class="is-active">D</button>
+        <button data-tf="W">W</button>
+        <button data-tf="M">M</button>
+      </div>
       <div class="btn-group" id="range-buttons" role="group" aria-label="Chart range">
         <button data-range="63">3M</button>
         <button data-range="126">6M</button>
@@ -70,23 +77,39 @@
         <button data-range="756">3Y</button>
         <button data-range="0">Max</button>
       </div>
-      <div class="btn-group" id="overlay-buttons" role="group" aria-label="Overlays">
-        <button data-overlay="sma" class="is-active">MA</button>
-        <button data-overlay="bb">Bollinger</button>
-        <button data-overlay="vwap">VWAP</button>
-        <button data-overlay="forecast">Forecast</button>
+      <div class="btn-group" id="main-ind-buttons" role="group" aria-label="Price overlays">
+        <button data-ind="MA" class="is-active">MA</button>
+        <button data-ind="EMA">EMA</button>
+        <button data-ind="BOLL">Bollinger</button>
+        <button data-ind="MDVWAP">VWAP</button>
+        <button data-ind="forecast">Forecast</button>
       </div>
-      <div class="btn-group" id="pane-buttons" role="group" aria-label="Lower pane">
-        <button data-pane="rsi" class="is-active">RSI</button>
-        <button data-pane="macd">MACD</button>
-        <button data-pane="rvol">Rel. volume</button>
-        <button data-pane="obv">OBV</button>
+      <div class="btn-group" id="sub-ind-buttons" role="group" aria-label="Indicator panes">
+        <button data-ind="VOL" class="is-active">Vol</button>
+        <button data-ind="MDRVOL">RVOL</button>
+        <button data-ind="RSI" class="is-active">RSI</button>
+        <button data-ind="MACD">MACD</button>
+        <button data-ind="OBV">OBV</button>
+        <button data-ind="KDJ">KDJ</button>
       </div>
     </div>
 
-    <div id="chart-main" class="chart chart-main"></div>
-    <div id="chart-lower" class="chart chart-lower"></div>
-    <div id="legend" class="legend"></div>
+    <div class="chart-shell">
+      <div class="draw-rail" id="draw-rail" role="toolbar" aria-label="Drawing tools">
+        <button data-draw="" class="is-active" title="Pointer — no drawing">➤</button>
+        <button data-draw="segment" title="Trend line">╱</button>
+        <button data-draw="rayLine" title="Ray">↗</button>
+        <button data-draw="horizontalStraightLine" title="Horizontal line">─</button>
+        <button data-draw="priceLine" title="Price line with label">₊─</button>
+        <button data-draw="parallelStraightLine" title="Parallel channel">∥</button>
+        <button data-draw="fibonacciLine" title="Fibonacci retracement">𝑓</button>
+        <button data-draw="simpleAnnotation" title="Text note">T</button>
+        <span class="rail-gap"></span>
+        <button id="magnet-btn" title="Magnet — snap drawings to OHLC">🧲</button>
+        <button id="erase-btn" title="Remove all drawings">🗑</button>
+      </div>
+      <div id="chart" class="chart-klc"></div>
+    </div>
 
     <div class="cards">
       <article class="card" id="card-valuation">
@@ -95,6 +118,10 @@
       </article>
       <article class="card" id="card-volume">
         <h3>Volume</h3>
+        <div class="card-body"></div>
+      </article>
+      <article class="card" id="card-factors">
+        <h3>Factor profile</h3>
         <div class="card-body"></div>
       </article>
       <article class="card" id="card-forecast">
@@ -142,6 +169,48 @@
     </div>
   </section>
 
+  <!-- Factors view -->
+  <section id="view-factors" class="view">
+    <div class="screen-head">
+      <h2>Factors</h2>
+      <p class="muted" id="factor-caveat"></p>
+    </div>
+    <div class="table-wrap">
+      <table id="factor-table">
+        <thead>
+          <tr>
+            <th data-key="symbol" class="sticky-col" rowspan="2">Symbol</th>
+            <th colspan="4" class="group">Momentum <span class="gnote">formation skips the last month</span></th>
+            <th colspan="4" class="group">Value <span class="gnote">yields — higher = cheaper</span></th>
+            <th colspan="5" class="group">Quality</th>
+            <th rowspan="2">Flags</th>
+          </tr>
+          <tr>
+            <th data-key="mom_12_1" class="num">12-1</th>
+            <th data-key="mom_6_1" class="num">6-1</th>
+            <th data-key="ret_1m" class="num" title="The skipped month — the mean-reversion window, not part of the signal">1M ⚠</th>
+            <th data-key="mom_rank" class="num">Rank</th>
+            <th data-key="ev_ebitda" class="num">EV/EBITDA</th>
+            <th data-key="fcf_yield" class="num">FCF yld</th>
+            <th data-key="earnings_yield" class="num">Earn yld</th>
+            <th data-key="value_score" class="num">Score</th>
+            <th data-key="roe" class="num">ROE</th>
+            <th data-key="roa" class="num" title="ROA — the closest ROIC proxy the data source provides">ROA*</th>
+            <th data-key="op_margin" class="num">Op mgn</th>
+            <th data-key="debt_to_equity" class="num">D/E</th>
+            <th data-key="quality_score" class="num">Score</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="factor-legend">
+      <p><strong>Momentum</strong> — the 12-1 construction: return from twelve months ago to <em>one month ago</em>. The skipped month (1M ⚠) mean-reverts, which is exactly why it is excluded from the formation window and shown separately.</p>
+      <p><strong>Value</strong> — rank average of EBITDA yield (1÷EV/EBITDA), free-cash-flow yield, and earnings yield. Multi-ratio on purpose: a low P/E alone walks into value traps. Banks legitimately report no EBITDA or FCF and are scored on what they have.</p>
+      <p><strong>Quality</strong> — rank average of ROE, ROA (the available ROIC proxy), operating margin, and low leverage. The <span class="flag flag-trap">trap</span> flag marks names in the cheap third on value <em>and</em> the bottom third on quality — cheap-because-dying. <span class="flag flag-rev">reversal</span> marks a last month that fought the 12-1 signal.</p>
+    </div>
+  </section>
+
 </main>
 
 <dialog id="about">
@@ -151,9 +220,9 @@
 </dialog>
 
 <footer class="footer">
-  <p><strong>Tracker context, not trading advice.</strong> Nothing here is a recommendation to buy or sell any security. Figures come from Yahoo Finance via yfinance and can be wrong, stale, or missing.</p>
+  <p><strong>Tracker context, not trading advice.</strong> Nothing here is a recommendation to buy or sell any security. Factor scores are descriptive screens within this small watchlist, not market factor exposures. Figures come from Yahoo Finance via yfinance and can be wrong, stale, or missing.</p>
 </footer>
 
-<script src="app.js?v=20260819161500"></script>
+<script src="app.js?v=20260819165534"></script>
 </body>
 </html>

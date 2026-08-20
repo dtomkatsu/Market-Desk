@@ -219,21 +219,44 @@ body { display: flex; flex-direction: column; min-height: 100vh; }
 .btn-group button:hover { color: var(--text); background: var(--bg-input); }
 .btn-group button.is-active { color: var(--text); background: var(--bg-input); box-shadow: inset 0 -2px 0 var(--accent); }
 
-.chart { width: 100%; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-raised); }
-.chart-main { height: 420px; }
-.chart-lower { height: 150px; margin-top: 8px; }
-
-.legend {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--text-dim);
-  padding: 8px 2px 0;
-  min-height: 20px;
+/* The chart shell: TradingView's signature layout — a slim vertical
+   drawing-tool rail on the left, the chart filling the rest. KLineChart
+   manages its own candle + indicator panes inside the one container. */
+.chart-shell {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  overflow: hidden;
 }
-.legend .swatch { display: inline-block; width: 9px; height: 2px; vertical-align: middle; margin-right: 5px; }
+
+.draw-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  border-right: 1px solid var(--border-soft);
+  background: var(--bg-raised);
+}
+
+.draw-rail button {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.draw-rail button:hover { background: var(--bg-input); color: var(--text); }
+.draw-rail button.is-active { background: var(--bg-input); color: var(--accent); box-shadow: inset 0 0 0 1px var(--border); }
+.rail-gap { flex: 0 0 10px; border-top: 1px solid var(--border-soft); width: 20px; margin: 4px 0; }
+
+.chart-klc { height: 620px; min-width: 0; }
 
 /* ---------- cards ---------- */
 
@@ -362,13 +385,41 @@ dialog code { font-family: var(--mono); font-size: 11.5px; background: var(--bg-
 
 .empty { padding: 40px 8px; text-align: center; color: var(--text-faint); font-size: 13px; }
 
+/* ---------- factors ---------- */
+
+th.group { text-align: center; border-left: 1px solid var(--border-soft); }
+.gnote { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-faint); margin-left: 6px; }
+
+.flag-trap { background: rgba(239, 83, 80, 0.16); color: #ef6461; }
+.flag-rev { background: rgba(210, 153, 34, 0.16); color: #d4a531; }
+.flag-fund { background: var(--bg-input); color: var(--text-faint); }
+
+.factor-legend {
+  margin-top: 14px;
+  max-width: 100ch;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.factor-legend p { margin: 0 0 8px; }
+
+/* Score bar for the factor card: 0..1 rank as a filled track. */
+.fbar { display: grid; grid-template-columns: 74px 1fr 40px; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
+.fbar .lab { color: var(--text-dim); }
+.fbar .val { font-family: var(--mono); text-align: right; }
+.fbar-track { height: 6px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 3px; position: relative; }
+.fbar-fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); opacity: 0.75; }
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
   .sidebar { position: static; max-height: 240px; border-right: none; border-bottom: 1px solid var(--border); }
-  .chart-main { height: 320px; }
-  .chart-lower { height: 120px; }
+  .chart-klc { height: 440px; }
+  /* Drawing needs a pointer; hide the rail on small screens — and collapse
+     its grid column too, or the chart auto-places into the 38px track. */
+  .draw-rail { display: none; }
+  .chart-shell { grid-template-columns: minmax(0, 1fr); }
   .topbar { gap: 12px; }
   .stamp { width: 100%; margin-left: 0; order: 3; }
 }

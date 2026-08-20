@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from market_desk.build import DATA_DIR, write_all            # noqa: E402
 from market_desk.config import load_universe                 # noqa: E402
+from market_desk.factors import build_factor_views           # noqa: E402
 from market_desk.fetch import fetch_all                      # noqa: E402
 from market_desk.forecast import forecast_all                # noqa: E402
 from market_desk.macro import load_overlay                   # noqa: E402
@@ -74,12 +75,20 @@ def main(argv=None) -> int:
         ok = sum(1 for f in forecasts.values() if f.horizons)
         print(f"forecasts: {ok}/{len(forecasts)} produced horizons")
 
+    factor_views = build_factor_views(
+        {sym: [b.close for b in bars] for sym, bars in result.bars.items()},
+        result.fundamentals,
+    )
+    ranked = sum(1 for v in factor_views.values() if v.momentum_rank is not None)
+    print(f"factors: {ranked} companies in the cross-section")
+
     overlay = load_overlay()
     if not overlay.available:
         print(f"::warning::macro overlay unavailable: {overlay.error}")
 
     meta = write_all(
         universe, result, valuations, forecasts, overlay,
+        factor_views=factor_views,
         forecaster_pin=forecaster_pin(),
         data_dir=Path(args.data_dir) if args.data_dir else None,
     )

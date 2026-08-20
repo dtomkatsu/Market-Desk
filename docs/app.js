@@ -1,38 +1,57 @@
 /* Market Desk — dashboard front end.
  *
- * Reads only the committed JSON in data/. No API calls at view time, so
- * the page keeps working when a data source breaks and every number on
- * screen traces back to one refresh run.
+ * Chart surface: KLineChart v9 (Apache-2.0) — the open-source library whose
+ * interface tracks TradingView's: one container holding the candle pane plus
+ * indicator sub-panes, interactive drawing overlays (trend lines, channels,
+ * fibs) with magnet snapping, and per-pane tooltips.
+ *
+ * Reads only the committed JSON in data/. No API calls at view time, so the
+ * page keeps working when a data source breaks and every number on screen
+ * traces back to one refresh run.
  */
 'use strict';
 
-const LWC = window.LightweightCharts;
+const KLC = window.klinecharts;
 
 const state = {
   index: null,
   meta: null,
   rows: [],
   bySymbol: new Map(),
-  current: null,          // loaded symbol payload
+  current: null,           // loaded symbol payload
   currentSymbol: null,
   cache: new Map(),
-  range: 252,
-  overlays: new Set(['sma']),
-  pane: 'rsi',
+  timeframe: 'D',          // D | W | M
+  range: 252,              // daily sessions; 0 = max
+  mainInds: new Set(['MA']),
+  subInds: new Set(['VOL', 'RSI']),
+  forecastOn: false,
+  magnet: false,
+  activeDrawTool: '',
   sortKey: 'symbol',
-  sortDir: 1,
   screenSort: { key: 'symbol', dir: 1 },
+  factorSort: { key: 'mom_rank', dir: -1 },
   filter: '',
 };
 
-const charts = { main: null, lower: null, series: {} };
+const chartState = {
+  chart: null,
+  subPanes: new Map(),     // indicator name -> paneId
+  fanId: null,             // forecast overlay id
+  drawnIds: [],            // user drawings, for the eraser
+};
+
+// Sessions per bar for each timeframe — converts the daily range buttons.
+const TF_SESSIONS = { D: 1, W: 5, M: 21 };
+// Future bars per forecast-horizon month.
+const TF_BARS_PER_MONTH = { D: 21, W: 4.33, M: 1 };
 
 /* ---------------- formatting ---------------- */
 
 const fmt = {
   price(v) {
     if (v == null) return '—';
-    const digits = Math.abs(v) >= 1000 ? 2 : Math.abs(v) >= 1 ? 2 : 4;
+    const digits = Math.abs(v) >= 1 ? 2 : 4;
     return v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
   },
   pct(v, digits = 2) {
@@ -57,6 +76,7 @@ const fmt = {
     return v.toFixed(0);
   },
   ratio(v) { return v == null ? '—' : v.toFixed(2) + '×'; },
+  score(v) { return v == null ? '—' : v.toFixed(2); },
   pval(p) {
     if (p == null) return '—';
     return p < 0.001 ? p.toExponential(1) : p.toFixed(4);
@@ -89,9 +109,11 @@ async function boot() {
   }
 
   stampHeader();
-  buildCharts();
+  registerChartExtensions();
+  buildChart();
   renderSidebar();
   renderScreen();
+  renderFactors();
   wireControls();
 
   const wanted = new URLSearchParams(location.search).get('symbol');
@@ -105,7 +127,6 @@ function stampHeader() {
   const m = state.meta || {};
   const last = state.rows.length ? state.rows[0].last_date : (state.index.fetch_date || '');
   el('stamp-date').textContent = 'data through ' + (last || '—');
-
   const failed = m.symbols_failed && Object.keys(m.symbols_failed).length;
   if (failed) {
     showBanner(`${failed} symbol${failed > 1 ? 's' : ''} failed to update this run: ` +
@@ -117,6 +138,357 @@ function showBanner(text) {
   const b = el('banner');
   b.textContent = text;
   b.hidden = false;
+}
+
+/* ---------------- chart: custom indicators + forecast overlay ---------------- */
+
+function registerChartExtensions() {
+  // Relative volume, mirroring the pipeline's definition: today's volume
+  // against the average of the PRIOR 20 bars — the current bar never
+  // inflates its own baseline.
+  KLC.registerIndicator({
+    name: 'MDRVOL',
+    shortName: 'RVOL(20)',
+    figures: [{
+      key: 'rvol', title: 'RVOL: ', type: 'bar', baseValue: 0,
+      styles: (data) => {
+        const v = data.current && data.current.rvol;
+        if (v == null) return { color: 'rgba(88,166,255,0.45)' };
+        return {
+          color: v >= 2 ? 'rgba(239,83,80,0.8)'
+            : v >= 1.5 ? 'rgba(210,153,34,0.75)'
+            : 'rgba(88,166,255,0.45)',
+        };
+      },
+    }],
+    calc: (list) => {
+      const win = 20;
+      return list.map((bar, i) => {
+        if (i < win) return {};
+        let sum = 0;
+        for (let j = i - win; j < i; j++) sum += list[j].volume || 0;
+        const base = sum / win;
+        return base > 0 ? { rvol: (bar.volume || 0) / base } : {};
+      });
+    },
+  });
+
+  // Rolling 20-bar VWAP from the typical price — the daily-bar proxy, as in
+  // the pipeline (true VWAP needs tick data).
+  KLC.registerIndicator({
+    name: 'MDVWAP',
+    shortName: 'VWAP(20)',
+    figures: [{ key: 'vwap', title: 'VWAP: ', type: 'line', styles: () => ({ color: '#e3b341' }) }],
+    calc: (list) => {
+      const win = 20;
+      return list.map((_, i) => {
+        if (i < win - 1) return {};
+        let pv = 0, vol = 0;
+        for (let j = i - win + 1; j <= i; j++) {
+          const b = list[j];
+          const typical = (b.high + b.low + b.close) / 3;
+          pv += typical * (b.volume || 0);
+          vol += b.volume || 0;
+        }
+        return vol > 0 ? { vwap: pv / vol } : {};
+      });
+    },
+  });
+
+  // The damped-trend forecast fan: point path plus the 90% band, drawn past
+  // the last bar. Points use dataIndex — KLineChart extrapolates dataIndex
+  // beyond the data range linearly (verified), where future *timestamps*
+  // clamp to the last bar and misplace.
+  KLC.registerOverlay({
+    name: 'forecastFan',
+    totalStep: 0,
+    lock: true,
+    createPointFigures: ({ overlay, coordinates, yAxis }) => {
+      if (coordinates.length < 2 || !overlay.extendData) return [];
+      const { lo, hi } = overlay.extendData;
+      const figures = [];
+      const toY = (v) => (yAxis ? yAxis.convertToPixel(v) : null);
+
+      // 90% band polygon: anchor -> hi path -> back along lo path.
+      const anchor = coordinates[0];
+      const hiPts = [anchor];
+      const loPts = [];
+      for (let i = 1; i < coordinates.length; i++) {
+        const x = coordinates[i].x;
+        const yH = toY(hi[i - 1]);
+        const yL = toY(lo[i - 1]);
+        if (yH == null || yL == null) return figures;
+        hiPts.push({ x, y: yH });
+        loPts.push({ x, y: yL });
+      }
+      figures.push({
+        type: 'polygon',
+        attrs: { coordinates: hiPts.concat(loPts.reverse(), [anchor]) },
+        styles: { style: 'fill', color: 'rgba(88,166,255,0.10)' },
+        ignoreEvent: true,
+      });
+      figures.push({
+        type: 'line',
+        attrs: { coordinates },
+        styles: { color: '#58a6ff', size: 2, style: 'dashed', dashedValue: [5, 4] },
+        ignoreEvent: true,
+      });
+      return figures;
+    },
+  });
+}
+
+function chartStyles() {
+  return {
+    grid: {
+      horizontal: { color: '#1e242d' },
+      vertical: { color: '#1e242d' },
+    },
+    candle: {
+      bar: {
+        upColor: '#26a69a', downColor: '#ef5350', noChangeColor: '#8b98a8',
+        upBorderColor: '#26a69a', downBorderColor: '#ef5350', noChangeBorderColor: '#8b98a8',
+        upWickColor: '#26a69a', downWickColor: '#ef5350', noChangeWickColor: '#8b98a8',
+      },
+      priceMark: {
+        high: { color: '#8b98a8' },
+        low: { color: '#8b98a8' },
+        last: {
+          upColor: '#26a69a', downColor: '#ef5350', noChangeColor: '#8b98a8',
+          text: { size: 11 },
+        },
+      },
+      tooltip: {
+        text: { size: 11, color: '#8b98a8' },
+      },
+    },
+    indicator: {
+      tooltip: { text: { size: 11, color: '#8b98a8' } },
+      lastValueMark: { show: false },
+    },
+    xAxis: {
+      axisLine: { color: '#262d38' },
+      tickText: { color: '#5f6b7a', size: 11 },
+      tickLine: { color: '#262d38' },
+    },
+    yAxis: {
+      axisLine: { color: '#262d38' },
+      tickText: { color: '#5f6b7a', size: 11 },
+      tickLine: { color: '#262d38' },
+    },
+    separator: { color: '#262d38' },
+    crosshair: {
+      horizontal: {
+        line: { color: '#5f6b7a' },
+        text: { backgroundColor: '#262d38', size: 11 },
+      },
+      vertical: {
+        line: { color: '#5f6b7a' },
+        text: { backgroundColor: '#262d38', size: 11 },
+      },
+    },
+    overlay: {
+      point: { color: '#58a6ff', borderColor: 'rgba(88,166,255,0.35)' },
+      line: { color: '#58a6ff' },
+      polygon: { color: 'rgba(88,166,255,0.18)' },
+    },
+  };
+}
+
+function buildChart() {
+  chartState.chart = KLC.init('chart', { styles: chartStyles() });
+  syncIndicators();
+
+  const box = el('chart');
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => chartState.chart && chartState.chart.resize()).observe(box);
+  }
+}
+
+/** Fold daily candles to the active timeframe. */
+function aggregateBars(candles, tf) {
+  const daily = candles.map((c) => ({
+    timestamp: Date.parse(c.t + 'T00:00:00Z'),
+    open: c.o, high: c.h, low: c.l, close: c.c, volume: c.v,
+  }));
+  if (tf === 'D') return daily;
+
+  const keyOf = (ts) => {
+    const d = new Date(ts);
+    if (tf === 'M') return `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+    // ISO-ish week bucket, Monday-based
+    const monday = new Date(ts - ((d.getUTCDay() + 6) % 7) * 86400e3);
+    return `${monday.getUTCFullYear()}-${monday.getUTCMonth()}-${monday.getUTCDate()}`;
+  };
+
+  const out = [];
+  let bucket = null, bucketKey = null;
+  for (const bar of daily) {
+    const key = keyOf(bar.timestamp);
+    if (key !== bucketKey) {
+      if (bucket) out.push(bucket);
+      bucket = { ...bar };
+      bucketKey = key;
+    } else {
+      bucket.high = Math.max(bucket.high, bar.high);
+      bucket.low = Math.min(bucket.low, bar.low);
+      bucket.close = bar.close;
+      bucket.volume += bar.volume;
+      bucket.timestamp = bar.timestamp;   // stamp the bucket at its last session
+    }
+  }
+  if (bucket) out.push(bucket);
+  return out;
+}
+
+function loadChartData() {
+  const payload = state.current;
+  if (!payload || !chartState.chart) return;
+  const chart = chartState.chart;
+
+  chart.applyNewData(aggregateBars(payload.candles, state.timeframe));
+  drawForecastFan();          // dataIndex-anchored, so it must follow every data swap
+  applyRange();
+}
+
+function applyRange() {
+  const chart = chartState.chart;
+  const total = chart.getDataList().length;
+  if (!total) return;
+  const perBar = TF_SESSIONS[state.timeframe];
+  const bars = state.range > 0
+    ? Math.max(10, Math.min(Math.round(state.range / perBar), total))
+    : total;
+  const plotWidth = Math.max(el('chart').clientWidth - 70, 120);
+  // Breathing room on the right. With the forecast fan on, pad enough that
+  // the FIRST horizon stays on screen: solving rightPad = h·barSpace + 30
+  // with barSpace = (plot − rightPad) / bars gives the closed form below.
+  let rightPad = 60;
+  const f = state.current && state.current.forecast;
+  if (state.forecastOn && f && f.horizons && f.horizons.length) {
+    const h = f.horizons[0].months * TF_BARS_PER_MONTH[state.timeframe];
+    rightPad = Math.min((h * plotWidth / bars + 30) / (1 + h / bars), plotWidth * 0.45);
+  }
+  chart.setBarSpace(Math.min(Math.max((plotWidth - rightPad) / bars, 0.8), 26));
+  chart.setOffsetRightDistance(rightPad);
+  chart.scrollToRealTime();
+}
+
+function drawForecastFan() {
+  const chart = chartState.chart;
+  if (chartState.fanId) {
+    chart.removeOverlay(chartState.fanId);
+    chartState.fanId = null;
+  }
+  if (!state.forecastOn) return;
+
+  const payload = state.current;
+  const f = payload && payload.forecast;
+  if (!f || !f.horizons || !f.horizons.length) return;
+  const data = chart.getDataList();
+  if (!data.length) return;
+
+  const lastIdx = data.length - 1;
+  const lastClose = data[lastIdx].close;
+  const perMonth = TF_BARS_PER_MONTH[state.timeframe];
+
+  const points = [{ dataIndex: lastIdx, value: lastClose }];
+  const lo = [], hi = [];
+  for (const h of f.horizons) {
+    points.push({ dataIndex: lastIdx + Math.max(1, Math.round(h.months * perMonth)), value: h.value });
+    lo.push(h.lo90);
+    hi.push(h.hi90);
+  }
+  chartState.fanId = chart.createOverlay({
+    name: 'forecastFan',
+    points,
+    extendData: { lo, hi },
+  });
+}
+
+/** Reconcile the chart's indicator panes with the toggle state. */
+function syncIndicators() {
+  const chart = chartState.chart;
+
+  // main-pane overlays (stacked on the candles)
+  for (const name of ['MA', 'EMA', 'BOLL', 'MDVWAP']) {
+    const want = state.mainInds.has(name);
+    const have = chartState.subPanes.has('main:' + name);
+    if (want && !have) {
+      const spec = name === 'MA' ? { name: 'MA', calcParams: [20, 50, 200] }
+        : name === 'EMA' ? { name: 'EMA', calcParams: [12, 26] }
+        : { name };
+      chart.createIndicator(spec, true, { id: 'candle_pane' });
+      chartState.subPanes.set('main:' + name, 'candle_pane');
+    } else if (!want && have) {
+      chart.removeIndicator('candle_pane', name);
+      chartState.subPanes.delete('main:' + name);
+    }
+  }
+
+  // sub-panes
+  for (const name of ['VOL', 'MDRVOL', 'RSI', 'MACD', 'OBV', 'KDJ']) {
+    const want = state.subInds.has(name);
+    const paneId = chartState.subPanes.get('sub:' + name);
+    if (want && !paneId) {
+      // Match the pipeline's parameters: RSI-14 (the number the screen table
+      // reports), one 20-bar volume MA instead of the default three.
+      const spec = name === 'RSI' ? { name: 'RSI', calcParams: [14] }
+        : name === 'VOL' ? { name: 'VOL', calcParams: [20] }
+        : name;
+      const id = chart.createIndicator(spec, false);
+      chartState.subPanes.set('sub:' + name, id);
+    } else if (!want && paneId) {
+      chart.removeIndicator(paneId, name);
+      chartState.subPanes.delete('sub:' + name);
+    }
+  }
+}
+
+/* ---------------- drawing rail ---------------- */
+
+function wireDrawRail() {
+  const rail = el('draw-rail');
+  rail.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || !b.hasAttribute('data-draw')) return;
+    const tool = b.dataset.draw;
+    state.activeDrawTool = tool;
+    rail.querySelectorAll('button[data-draw]').forEach((x) =>
+      x.classList.toggle('is-active', x === b));
+    if (tool) startDrawing(tool);
+  });
+
+  el('magnet-btn').addEventListener('click', () => {
+    state.magnet = !state.magnet;
+    el('magnet-btn').classList.toggle('is-active', state.magnet);
+  });
+
+  el('erase-btn').addEventListener('click', () => {
+    for (const id of chartState.drawnIds) chartState.chart.removeOverlay(id);
+    chartState.drawnIds = [];
+  });
+}
+
+function startDrawing(tool) {
+  const id = chartState.chart.createOverlay({
+    name: tool,
+    mode: state.magnet ? 'weak_magnet' : 'normal',
+    onDrawEnd: () => {
+      // Drop back to the pointer once the shape is placed — TradingView's
+      // behavior, and it stops every later click from starting a new one.
+      state.activeDrawTool = '';
+      el('draw-rail').querySelectorAll('button[data-draw]').forEach((x) =>
+        x.classList.toggle('is-active', x.dataset.draw === ''));
+      return false;
+    },
+    onRightClick: (e) => {
+      chartState.chart.removeOverlay(e.overlay.id);
+      chartState.drawnIds = chartState.drawnIds.filter((x) => x !== e.overlay.id);
+      return true;
+    },
+  });
+  if (id) chartState.drawnIds.push(id);
 }
 
 /* ---------------- sidebar ---------------- */
@@ -134,7 +506,7 @@ function renderSidebar() {
     return rows.sort((a, b) => {
       const av = a[state.sortKey], bv = b[state.sortKey];
       if (av == null && bv == null) return 0;
-      if (av == null) return 1;          // missing values sink, either direction
+      if (av == null) return 1;
       if (bv == null) return -1;
       return bv - av;
     });
@@ -161,294 +533,6 @@ function renderSidebar() {
   });
 }
 
-/* ---------------- charts ---------------- */
-
-const chartTheme = {
-  layout: { background: { color: '#151b23' }, textColor: '#8b98a8', fontSize: 11,
-    fontFamily: 'ui-monospace, SF Mono, Menlo, monospace' },
-  grid: { vertLines: { color: '#1e242d' }, horzLines: { color: '#1e242d' } },
-  rightPriceScale: { borderColor: '#262d38' },
-  timeScale: { borderColor: '#262d38', rightOffset: 6 },
-  crosshair: {
-    mode: LWC.CrosshairMode.Normal,
-    vertLine: { color: '#5f6b7a', width: 1, style: 3, labelBackgroundColor: '#262d38' },
-    horzLine: { color: '#5f6b7a', width: 1, style: 3, labelBackgroundColor: '#262d38' },
-  },
-};
-
-function buildCharts() {
-  // Sized explicitly rather than with `autoSize: true`. Under autoSize the
-  // chart's internal width stays 0 in this build, which pins barSpacing at
-  // its 0.5 minimum — fitContent() and setVisibleLogicalRange() both become
-  // no-ops and every series renders squeezed against the right edge. Passing
-  // real dimensions and driving resize ourselves keeps the time scale honest.
-  const mainBox = el('chart-main');
-  const lowerBox = el('chart-lower');
-
-  charts.main = LWC.createChart(mainBox, {
-    ...chartTheme,
-    width: mainBox.clientWidth,
-    height: mainBox.clientHeight,
-  });
-  charts.lower = LWC.createChart(lowerBox, {
-    ...chartTheme,
-    width: lowerBox.clientWidth,
-    height: lowerBox.clientHeight,
-    timeScale: { ...chartTheme.timeScale, visible: false },
-    // The lower pane is a slave view, never a control surface. Disabling
-    // its own scroll/scale is what makes the one-way sync below safe.
-    handleScroll: false,
-    handleScale: false,
-  });
-
-  // Sync is deliberately ONE-WAY: the main chart drives the lower pane and
-  // the lower pane never writes back. A two-way link guarded by a boolean
-  // does not work here — the range-change event fires asynchronously, so
-  // the guard is already cleared when the echo arrives, and the two charts
-  // ratchet each other into an ever-tighter window until the chart shows a
-  // handful of bars. With no back-channel the loop cannot form.
-  charts.main.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (range) charts.lower.timeScale().setVisibleLogicalRange(range);
-  });
-
-  charts.main.subscribeCrosshairMove(updateLegend);
-
-  // Keep both panes matched to their containers.
-  const resize = () => {
-    if (!mainBox.clientWidth) return;         // hidden view; nothing to measure
-    charts.main.resize(mainBox.clientWidth, mainBox.clientHeight);
-    charts.lower.resize(lowerBox.clientWidth, lowerBox.clientHeight);
-  };
-  if (window.ResizeObserver) new ResizeObserver(resize).observe(mainBox);
-  window.addEventListener('resize', resize);
-  charts.resize = resize;
-}
-
-function clearSeries() {
-  for (const key of Object.keys(charts.series)) {
-    const entry = charts.series[key];
-    const chart = entry.pane === 'lower' ? charts.lower : charts.main;
-    try { chart.removeSeries(entry.series); } catch (_) { /* already gone */ }
-  }
-  charts.series = {};
-}
-
-function addSeries(key, pane, series) { charts.series[key] = { pane, series }; }
-
-/** Trim aligned arrays to the selected range. 0 means "everything". */
-function windowed(payload) {
-  const n = payload.candles.length;
-  const take = state.range > 0 ? Math.min(state.range, n) : n;
-  const from = n - take;
-  const slice = (arr) => (Array.isArray(arr) ? arr.slice(from) : []);
-  return {
-    from,
-    candles: payload.candles.slice(from),
-    ind: Object.fromEntries(Object.entries(payload.indicators || {}).map(([k, v]) => [k, slice(v)])),
-    vol: Object.fromEntries(Object.entries(payload.volume_analytics || {})
-      .filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, slice(v)])),
-  };
-}
-
-/** Pair a value series with candle times, dropping nulls (unwarmed windows). */
-function lineData(times, values) {
-  const out = [];
-  for (let i = 0; i < times.length; i++) {
-    const v = values[i];
-    if (v != null) out.push({ time: times[i], value: v });
-  }
-  return out;
-}
-
-function drawChart() {
-  const payload = state.current;
-  if (!payload) return;
-  clearSeries();
-
-  const w = windowed(payload);
-  const times = w.candles.map((c) => c.t);
-
-  // --- price ---
-  const candles = charts.main.addCandlestickSeries({
-    upColor: '#26a69a', downColor: '#ef5350',
-    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-    wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-  });
-  candles.setData(w.candles.map((c) => ({ time: c.t, open: c.o, high: c.h, low: c.l, close: c.c })));
-  candles.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.28 } });
-  addSeries('candles', 'main', candles);
-
-  // --- volume, as an overlay pinned to the lower quarter ---
-  const volume = charts.main.addHistogramSeries({
-    priceFormat: { type: 'volume' },
-    priceScaleId: 'volume',
-    lastValueVisible: false,
-    priceLineVisible: false,
-  });
-  volume.setData(w.candles.map((c) => ({
-    time: c.t, value: c.v,
-    color: c.c >= c.o ? 'rgba(38,166,154,0.45)' : 'rgba(239,83,80,0.45)',
-  })));
-  charts.main.priceScale('volume').applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
-  addSeries('volume', 'main', volume);
-
-  // --- overlays ---
-  if (state.overlays.has('sma')) {
-    const specs = [
-      ['sma20', '#58a6ff', 'SMA 20'],
-      ['sma50', '#d29922', 'SMA 50'],
-      ['sma200', '#a371f7', 'SMA 200'],
-    ];
-    for (const [key, color, title] of specs) {
-      const data = lineData(times, w.ind[key] || []);
-      if (!data.length) continue;
-      const s = charts.main.addLineSeries({ color, lineWidth: 1, title, priceLineVisible: false, lastValueVisible: false });
-      s.setData(data);
-      addSeries(key, 'main', s);
-    }
-  }
-
-  if (state.overlays.has('bb')) {
-    for (const [key, title] of [['bb_upper', 'BB upper'], ['bb_lower', 'BB lower']]) {
-      const data = lineData(times, w.ind[key] || []);
-      if (!data.length) continue;
-      const s = charts.main.addLineSeries({
-        color: 'rgba(139,152,168,0.65)', lineWidth: 1, lineStyle: 2,
-        title, priceLineVisible: false, lastValueVisible: false,
-      });
-      s.setData(data);
-      addSeries(key, 'main', s);
-    }
-  }
-
-  if (state.overlays.has('vwap')) {
-    const data = lineData(times, w.vol.vwap20 || []);
-    if (data.length) {
-      const s = charts.main.addLineSeries({
-        color: '#e3b341', lineWidth: 1, title: 'VWAP 20',
-        priceLineVisible: false, lastValueVisible: false,
-      });
-      s.setData(data);
-      addSeries('vwap', 'main', s);
-    }
-  }
-
-  if (state.overlays.has('forecast')) drawForecast(payload, w);
-
-  // --- lower pane ---
-  drawLowerPane(times, w);
-
-  // Only the main chart fits; the subscription above pushes the resulting
-  // range to the lower pane.
-  charts.main.timeScale().fitContent();
-  updateLegend(null);
-}
-
-/** Project the damped-trend point and its 90% band past the last bar. */
-function drawForecast(payload, w) {
-  const f = payload.forecast;
-  if (!f || !f.horizons || !f.horizons.length) return;
-  const lastCandle = w.candles[w.candles.length - 1];
-  if (!lastCandle) return;
-
-  // Each line is anchored at the last real close so the projection reads
-  // as a continuation rather than a detached floating segment.
-  const anchor = { time: lastCandle.t, value: lastCandle.c };
-  const mk = (field, color, style, title) => {
-    const pts = [anchor].concat(
-      f.horizons
-        .filter((h) => h.target_date > lastCandle.t)
-        .map((h) => ({ time: h.target_date, value: h[field] })),
-    );
-    if (pts.length < 2) return;
-    const s = charts.main.addLineSeries({
-      color, lineWidth: field === 'value' ? 2 : 1, lineStyle: style,
-      title, priceLineVisible: false, lastValueVisible: false,
-    });
-    s.setData(pts);
-    addSeries('fc_' + field, 'main', s);
-  };
-  mk('value', '#58a6ff', 2, 'forecast');
-  mk('hi90', 'rgba(88,166,255,0.5)', 3, 'hi 90%');
-  mk('lo90', 'rgba(88,166,255,0.5)', 3, 'lo 90%');
-}
-
-function drawLowerPane(times, w) {
-  const pane = state.pane;
-
-  if (pane === 'rsi') {
-    const s = charts.lower.addLineSeries({ color: '#58a6ff', lineWidth: 1, title: 'RSI 14' });
-    s.setData(lineData(times, w.ind.rsi14 || []));
-    // 70/30 are the conventional bands; drawn as price lines so they
-    // scale with the pane instead of needing their own series.
-    for (const [v, color] of [[70, 'rgba(239,83,80,0.55)'], [30, 'rgba(38,166,154,0.55)']]) {
-      s.createPriceLine({ price: v, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' });
-    }
-    charts.lower.priceScale('right').applyOptions({ autoScale: false });
-    s.applyOptions({ autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) });
-    addSeries('rsi', 'lower', s);
-
-  } else if (pane === 'macd') {
-    const hist = charts.lower.addHistogramSeries({ title: 'MACD hist' });
-    hist.setData(lineData(times, w.ind.macd_hist || []).map((p) => ({
-      ...p, color: p.value >= 0 ? 'rgba(38,166,154,0.6)' : 'rgba(239,83,80,0.6)',
-    })));
-    addSeries('macd_hist', 'lower', hist);
-    const line = charts.lower.addLineSeries({ color: '#58a6ff', lineWidth: 1, title: 'MACD' });
-    line.setData(lineData(times, w.ind.macd || []));
-    addSeries('macd', 'lower', line);
-    const sig = charts.lower.addLineSeries({ color: '#d29922', lineWidth: 1, title: 'signal' });
-    sig.setData(lineData(times, w.ind.macd_signal || []));
-    addSeries('macd_signal', 'lower', sig);
-
-  } else if (pane === 'rvol') {
-    const s = charts.lower.addHistogramSeries({ title: 'Relative volume' });
-    s.setData(lineData(times, w.vol.rvol || []).map((p) => ({
-      ...p,
-      // 2× its own 20-day baseline is the conventional "unusual volume"
-      // threshold; colored so a spike is findable without reading the axis.
-      color: p.value >= 2 ? 'rgba(239,83,80,0.75)'
-        : p.value >= 1.5 ? 'rgba(210,153,34,0.7)'
-        : 'rgba(88,166,255,0.45)',
-    })));
-    s.createPriceLine({ price: 1, color: 'rgba(139,152,168,0.6)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' });
-    addSeries('rvol', 'lower', s);
-
-  } else if (pane === 'obv') {
-    const s = charts.lower.addLineSeries({ color: '#a371f7', lineWidth: 1, title: 'OBV' });
-    s.setData(lineData(times, w.vol.obv || []));
-    addSeries('obv', 'lower', s);
-  }
-}
-
-function updateLegend(param) {
-  const payload = state.current;
-  if (!payload) return;
-  const w = windowed(payload);
-  let idx = w.candles.length - 1;
-  if (param && param.time) {
-    const found = w.candles.findIndex((c) => c.t === param.time);
-    if (found >= 0) idx = found;
-  }
-  const c = w.candles[idx];
-  if (!c) return;
-
-  const parts = [
-    `<span>${c.t}</span>`,
-    `<span>O ${fmt.price(c.o)}  H ${fmt.price(c.h)}  L ${fmt.price(c.l)}  <strong>C ${fmt.price(c.c)}</strong></span>`,
-    `<span>Vol ${fmt.compact(c.v)}</span>`,
-  ];
-  const rvol = (w.vol.rvol || [])[idx];
-  if (rvol != null) parts.push(`<span>RVOL ${rvol.toFixed(2)}×</span>`);
-  if (state.overlays.has('sma')) {
-    for (const [key, color, label] of [['sma20', '#58a6ff', 'MA20'], ['sma50', '#d29922', 'MA50'], ['sma200', '#a371f7', 'MA200']]) {
-      const v = (w.ind[key] || [])[idx];
-      if (v != null) parts.push(`<span><i class="swatch" style="background:${color}"></i>${label} ${fmt.price(v)}</span>`);
-    }
-  }
-  el('legend').innerHTML = parts.join('');
-}
-
 /* ---------------- symbol selection ---------------- */
 
 async function selectSymbol(symbol) {
@@ -465,14 +549,14 @@ async function selectSymbol(symbol) {
       });
       state.cache.set(symbol, payload);
     } catch (err) {
-      el('legend').innerHTML = `<span class="down">Could not load ${esc(symbol)}.</span>`;
+      showBanner(`Could not load ${symbol}.`);
       return;
     }
   }
 
   state.current = payload;
   renderSymbolHead();
-  drawChart();
+  loadChartData();
   renderCards();
 
   const url = new URL(location);
@@ -504,6 +588,15 @@ function percentileBar(rank) {
       <div class="pbar-mark" style="left:calc(${pct}% - 1px)"></div>
     </div>
     <div class="pbar-labels"><span>cheapest</span><span>${pct}th pctile of ${esc(rank.peer_group)} (n=${rank.peer_count})</span><span>priciest</span></div>
+  </div>`;
+}
+
+function scoreBar(label, value, formatted) {
+  const pct = value == null ? 0 : Math.round(value * 100);
+  return `<div class="fbar">
+    <span class="lab">${esc(label)}</span>
+    <div class="fbar-track">${value == null ? '' : `<div class="fbar-fill" style="width:${pct}%"></div>`}</div>
+    <span class="val">${esc(formatted)}</span>
   </div>`;
 }
 
@@ -549,6 +642,37 @@ function renderCards() {
   <p class="note faint">A descriptive label, not a backtested signal.</p>`;
   el('card-volume').querySelector('.card-body').innerHTML = html;
 
+  // --- factors ---
+  const fac = p.factors;
+  if (fac && !fac.is_fund && (fac.momentum.rank != null || fac.value.score != null)) {
+    const m = fac.momentum;
+    html = scoreBar('Momentum', m.rank, fmt.score(m.rank))
+      + scoreBar('Value', fac.value.score, fmt.score(fac.value.score))
+      + scoreBar('Quality', fac.quality.score, fmt.score(fac.quality.score));
+    html += `<dl class="kv" style="margin-top:10px">
+      <dt>12-1 formation</dt><dd class="${fmt.cls(m.mom_12_1)}">${fmt.signedPct(m.mom_12_1, 1)}</dd>
+      <dt>Skipped month (reversal window)</dt><dd class="${fmt.cls(m.ret_1m)}">${fmt.signedPct(m.ret_1m, 1)}</dd>
+      <dt>EV/EBITDA</dt><dd>${fmt.num(fac.value.ev_ebitda, 1)}</dd>
+      <dt>FCF yield</dt><dd>${fmt.pct(fac.value.fcf_yield, 1)}</dd>
+      <dt>ROE / ROA</dt><dd>${fmt.pct(fac.quality.roe, 1)} / ${fmt.pct(fac.quality.roa, 1)}</dd>
+      <dt>Debt / equity</dt><dd>${fmt.num(fac.quality.debt_to_equity)}</dd>
+    </dl>`;
+    if (fac.value_trap) html += `<p class="note"><span class="flag flag-trap">value trap</span></p>`;
+    if (fac.reversal_tension) html += `<p class="note"><span class="flag flag-rev">reversal tension</span></p>`;
+    for (const note of fac.notes || []) html += `<p class="note faint">${esc(note)}</p>`;
+    html += `<p class="note faint">Ranks are within the ${fac.universe_n}-company tracked universe, not the market.</p>`;
+  } else if (fac && fac.is_fund) {
+    const m = fac.momentum;
+    html = `<dl class="kv">
+      <dt>12-1 formation return</dt><dd class="${fmt.cls(m.mom_12_1)}">${fmt.signedPct(m.mom_12_1, 1)}</dd>
+      <dt>Skipped month</dt><dd class="${fmt.cls(m.ret_1m)}">${fmt.signedPct(m.ret_1m, 1)}</dd>
+    </dl>`;
+    for (const note of fac.notes || []) html += `<p class="note faint">${esc(note)}</p>`;
+  } else {
+    html = '<p class="note">No factor data for this symbol.</p>';
+  }
+  el('card-factors').querySelector('.card-body').innerHTML = html;
+
   // --- forecast ---
   const f = p.forecast;
   if (f && f.horizons && f.horizons.length) {
@@ -564,7 +688,7 @@ function renderCards() {
         ? `, with a walk-forward-calibrated band multiplier of ${fmt.num(f.band_multiplier)}`
         : ', with the fallback normal multiplier — this series was too short to calibrate'
     }. Monthly volatility ${fmt.pct(f.monthly_vol)}, fitted on ${f.months_used} months.</p>`;
-    html += `<p class="note faint">Equity prices are close to a random walk. The point is a damped trend, not a prediction of skill; the band is the honest content, and it is wide on purpose.</p>`;
+    html += `<p class="note faint">Equity prices are close to a random walk. The point is a damped trend, not a prediction of skill; the band is the honest content, and it is wide on purpose. Toggle "Forecast" above the chart to draw it.</p>`;
   } else {
     html = `<p class="note">No forecast${f && f.error ? ` — ${esc(f.error)}` : ''}.</p>`;
   }
@@ -611,16 +735,20 @@ const SCREEN_COLS = [
   ['market_cap', (r) => `<td class="num">${fmt.compact(r.market_cap)}</td>`],
 ];
 
-function renderScreen() {
-  const { key, dir } = state.screenSort;
-  const rows = state.rows.slice().sort((a, b) => {
+function sortRows(rows, key, dir) {
+  return rows.slice().sort((a, b) => {
     const av = a[key], bv = b[key];
     if (av == null && bv == null) return 0;
-    if (av == null) return 1;            // blanks always sink
+    if (av == null) return 1;
     if (bv == null) return -1;
     if (typeof av === 'string') return dir * av.localeCompare(bv);
     return dir * (av - bv);
   });
+}
+
+function renderScreen() {
+  const { key, dir } = state.screenSort;
+  const rows = sortRows(state.rows, key, dir);
 
   el('screen-table').querySelector('tbody').innerHTML = rows.map((r) =>
     `<tr data-symbol="${esc(r.symbol)}">${SCREEN_COLS.map(([, render]) => render(r)).join('')}</tr>`
@@ -639,16 +767,68 @@ function renderScreen() {
   });
 }
 
+/* ---------------- factors table ---------------- */
+
+const FACTOR_COLS = [
+  ['symbol', (r) => `<td class="sym sticky-col">${esc(r.symbol)}</td>`],
+  ['mom_12_1', (r) => `<td class="num ${fmt.cls(r.mom_12_1)}">${fmt.signedPct(r.mom_12_1, 1)}</td>`],
+  ['mom_6_1', (r) => `<td class="num ${fmt.cls(r.mom_6_1)}">${fmt.signedPct(r.mom_6_1, 1)}</td>`],
+  ['ret_1m', (r) => `<td class="num faint">${fmt.signedPct(r.ret_1m, 1)}</td>`],
+  ['mom_rank', (r) => `<td class="num">${fmt.score(r.mom_rank)}</td>`],
+  ['ev_ebitda', (r) => `<td class="num">${fmt.num(r.ev_ebitda, 1)}</td>`],
+  ['fcf_yield', (r) => `<td class="num">${fmt.pct(r.fcf_yield, 1)}</td>`],
+  ['earnings_yield', (r) => `<td class="num">${fmt.pct(r.earnings_yield, 1)}</td>`],
+  ['value_score', (r) => `<td class="num">${fmt.score(r.value_score)}</td>`],
+  ['roe', (r) => `<td class="num">${fmt.pct(r.roe, 1)}</td>`],
+  ['roa', (r) => `<td class="num">${fmt.pct(r.roa, 1)}</td>`],
+  ['op_margin', (r) => `<td class="num">${fmt.pct(r.op_margin, 1)}</td>`],
+  ['debt_to_equity', (r) => `<td class="num">${fmt.num(r.debt_to_equity)}</td>`],
+  ['quality_score', (r) => `<td class="num">${fmt.score(r.quality_score)}</td>`],
+  ['flags', (r) => {
+    const flags = [];
+    if (r.value_trap) flags.push('<span class="flag flag-trap">trap</span>');
+    if (r.reversal_tension) flags.push('<span class="flag flag-rev">reversal</span>');
+    if (r.quote_type === 'ETF') flags.push('<span class="flag flag-fund">fund</span>');
+    return `<td>${flags.join(' ')}</td>`;
+  }],
+];
+
+function renderFactors() {
+  const caveat = (state.meta && state.meta.factor_caveat) || '';
+  el('factor-caveat').textContent = caveat;
+
+  const rows = state.rows;
+  const { key, dir } = state.factorSort;
+  const companies = sortRows(rows.filter((r) => r.mom_rank != null), key, dir);
+  const funds = sortRows(rows.filter((r) => r.mom_rank == null), 'mom_12_1', -1);
+
+  el('factor-table').querySelector('tbody').innerHTML =
+    companies.concat(funds).map((r) =>
+      `<tr data-symbol="${esc(r.symbol)}">${FACTOR_COLS.map(([, render]) => render(r)).join('')}</tr>`
+    ).join('');
+
+  document.querySelectorAll('#factor-table th[data-key]').forEach((th) => {
+    th.classList.toggle('sorted', th.dataset.key === key);
+    th.classList.toggle('asc', th.dataset.key === key && dir === 1);
+  });
+
+  el('factor-table').querySelectorAll('tbody tr').forEach((tr) => {
+    tr.addEventListener('click', () => {
+      selectSymbol(tr.dataset.symbol);
+      switchView('chart');
+    });
+  });
+}
+
 /* ---------------- controls ---------------- */
 
 function switchView(view) {
   document.querySelectorAll('.view-tab').forEach((b) => b.classList.toggle('is-active', b.dataset.view === view));
-  el('view-chart').classList.toggle('is-active', view === 'chart');
-  el('view-screen').classList.toggle('is-active', view === 'screen');
-  if (view === 'chart' && charts.main) {
-    // The panes were display:none while hidden, so they measured zero.
-    charts.resize();
-    charts.main.timeScale().fitContent();
+  for (const id of ['chart', 'screen', 'factors']) {
+    el('view-' + id).classList.toggle('is-active', id === view);
+  }
+  if (view === 'chart' && chartState.chart) {
+    chartState.chart.resize();
   }
 }
 
@@ -659,36 +839,61 @@ function wireControls() {
   el('filter').addEventListener('input', (e) => { state.filter = e.target.value; renderSidebar(); });
   el('sort').addEventListener('change', (e) => { state.sortKey = e.target.value; renderSidebar(); });
 
+  el('tf-buttons').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    state.timeframe = b.dataset.tf;
+    el('tf-buttons').querySelectorAll('button').forEach((x) => x.classList.toggle('is-active', x === b));
+    loadChartData();
+  });
+
   el('range-buttons').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     state.range = Number(b.dataset.range);
     el('range-buttons').querySelectorAll('button').forEach((x) => x.classList.toggle('is-active', x === b));
-    drawChart();
+    applyRange();
   });
 
-  el('overlay-buttons').addEventListener('click', (e) => {
+  el('main-ind-buttons').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
-    const key = b.dataset.overlay;
-    if (state.overlays.has(key)) state.overlays.delete(key); else state.overlays.add(key);
-    b.classList.toggle('is-active', state.overlays.has(key));
-    drawChart();
+    const key = b.dataset.ind;
+    if (key === 'forecast') {
+      state.forecastOn = !state.forecastOn;
+      b.classList.toggle('is-active', state.forecastOn);
+      drawForecastFan();
+      applyRange();
+      return;
+    }
+    if (state.mainInds.has(key)) state.mainInds.delete(key); else state.mainInds.add(key);
+    b.classList.toggle('is-active', state.mainInds.has(key));
+    syncIndicators();
   });
 
-  el('pane-buttons').addEventListener('click', (e) => {
+  el('sub-ind-buttons').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
-    state.pane = b.dataset.pane;
-    el('pane-buttons').querySelectorAll('button').forEach((x) => x.classList.toggle('is-active', x === b));
-    drawChart();
+    const key = b.dataset.ind;
+    if (state.subInds.has(key)) state.subInds.delete(key); else state.subInds.add(key);
+    b.classList.toggle('is-active', state.subInds.has(key));
+    syncIndicators();
   });
+
+  wireDrawRail();
 
   el('screen-table').querySelectorAll('th').forEach((th) => {
     th.addEventListener('click', () => {
       const key = th.dataset.key;
-      // Text sorts A→Z first; numbers sort high→low first, which is what
-      // you want from "show me the biggest movers".
+      if (!key) return;
       if (state.screenSort.key === key) state.screenSort.dir *= -1;
       else state.screenSort = { key, dir: key === 'symbol' || key === 'divergence' ? 1 : -1 };
       renderScreen();
+    });
+  });
+
+  el('factor-table').querySelectorAll('th[data-key]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (state.factorSort.key === key) state.factorSort.dir *= -1;
+      else state.factorSort = { key, dir: key === 'symbol' ? 1 : -1 };
+      renderFactors();
     });
   });
 
@@ -709,6 +914,8 @@ function aboutHtml() {
     <p><strong>Prices &amp; fundamentals</strong> — ${esc(src.prices || 'Yahoo Finance')}. Yahoo's endpoints are
        unofficial and undocumented: fields disappear, ETFs report aggregate multiples that are not
        comparable to a company's, and figures can be stale or simply wrong.</p>
+    <p><strong>Charting</strong> — KLineChart v9 (Apache-2.0), vendored. Drawing tools live on the
+       left rail; right-click a drawing to delete it.</p>
     <p><strong>Forecasts</strong> — ${esc(src.forecasts || '')} Pinned at Census-Forecaster
        <code>${esc((m.forecaster_pin || '—').slice(0, 12))}</code>.</p>
     <p><strong>Hawaii lead signals</strong> — ${esc(src.macro_signals || '')}
@@ -719,6 +926,8 @@ function aboutHtml() {
        percentile inside a peer group and the group is always named. When a sector has too few
        members in this watchlist, the peer group falls back to the whole tracked universe — which
        is a much weaker comparison than the full market, and the label says so.</p>
+    <h3>Factors</h3>
+    <p>${esc(m.factor_caveat || '')}</p>
     <h3>What this is not</h3>
     <p>${esc(m.disclaimer || 'Tracker context, not trading advice.')}</p>`;
 }

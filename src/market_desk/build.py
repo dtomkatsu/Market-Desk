@@ -24,6 +24,7 @@ from typing import Optional
 
 from . import __version__
 from .config import Universe
+from .factors import UNIVERSE_CAVEAT, FactorView
 from .fetch import FetchResult
 from .forecast import SymbolForecast
 from .indicators import (
@@ -62,7 +63,8 @@ def build_symbol_payload(symbol: str, result: FetchResult,
                          valuation: Optional[ValuationView],
                          forecast: Optional[SymbolForecast],
                          overlay: MacroOverlay,
-                         universe: Universe) -> dict:
+                         universe: Universe,
+                         factors: Optional[FactorView] = None) -> dict:
     """Everything the detail view needs for one symbol."""
     bars = result.bars[symbol]
     closes = [b.close for b in bars]
@@ -125,7 +127,42 @@ def build_symbol_payload(symbol: str, result: FetchResult,
         "valuation": None,
         "forecast": None,
         "macro_signals": summarize_ticker(overlay, symbol),
+        "factors": None,
     }
+
+    if factors:
+        m = factors.momentum
+        payload["factors"] = {
+            "is_fund": factors.is_fund,
+            "universe_n": factors.universe_n,
+            "momentum": {
+                "mom_12_1": _round(m.mom_12_1, 5),
+                "mom_6_1": _round(m.mom_6_1, 5),
+                "mom_3_1": _round(m.mom_3_1, 5),
+                "ret_1m": _round(m.ret_1m, 5),
+                "rank": _round(factors.momentum_rank, 3),
+            },
+            "value": {
+                "ev_ebitda": _round(factors.ev_ebitda, 3),
+                "ebitda_yield": _round(factors.ebitda_yield, 5),
+                "fcf_yield": _round(factors.fcf_yield, 5),
+                "earnings_yield": _round(factors.earnings_yield, 5),
+                "score": _round(factors.value_score, 3),
+                "metrics_used": list(factors.value_metrics_used),
+            },
+            "quality": {
+                "roe": _round(factors.roe, 5),
+                "roa": _round(factors.roa, 5),
+                "operating_margin": _round(factors.operating_margin, 5),
+                "debt_to_equity": _round(factors.debt_to_equity, 4),
+                "score": _round(factors.quality_score, 3),
+                "metrics_used": list(factors.quality_metrics_used),
+            },
+            "value_trap": factors.value_trap,
+            "reversal_tension": factors.reversal_tension,
+            "notes": list(factors.notes),
+            "caveat": UNIVERSE_CAVEAT,
+        }
 
     if valuation:
         payload["valuation"] = {
@@ -175,7 +212,8 @@ def build_symbol_payload(symbol: str, result: FetchResult,
 
 def build_index_row(symbol: str, result: FetchResult,
                     valuation: Optional[ValuationView],
-                    universe: Universe) -> dict:
+                    universe: Universe,
+                    factors: Optional[FactorView] = None) -> dict:
     """The compact summary row — everything the table sorts and screens on."""
     bars = result.bars[symbol]
     closes = [b.close for b in bars]
@@ -230,6 +268,30 @@ def build_index_row(symbol: str, result: FetchResult,
     else:
         row["range_52w_position"] = None
 
+    if factors:
+        m = factors.momentum
+        row["mom_12_1"] = _round(m.mom_12_1, 5)
+        row["mom_6_1"] = _round(m.mom_6_1, 5)
+        row["ret_1m"] = _round(m.ret_1m, 5)
+        row["mom_rank"] = _round(factors.momentum_rank, 3)
+        row["ev_ebitda"] = _round(factors.ev_ebitda, 3)
+        row["fcf_yield"] = _round(factors.fcf_yield, 5)
+        row["value_score"] = _round(factors.value_score, 3)
+        row["roe"] = _round(factors.roe, 5)
+        row["roa"] = _round(factors.roa, 5)
+        row["op_margin"] = _round(factors.operating_margin, 5)
+        row["debt_to_equity"] = _round(factors.debt_to_equity, 4)
+        row["quality_score"] = _round(factors.quality_score, 3)
+        row["value_trap"] = factors.value_trap
+        row["reversal_tension"] = factors.reversal_tension
+    else:
+        for key in ("mom_12_1", "mom_6_1", "ret_1m", "mom_rank", "ev_ebitda",
+                    "fcf_yield", "value_score", "roe", "roa", "op_margin",
+                    "debt_to_equity", "quality_score"):
+            row[key] = None
+        row["value_trap"] = False
+        row["reversal_tension"] = False
+
     if valuation:
         row["peer_group"] = valuation.peer_group
         row["pe_percentile"] = (
@@ -243,6 +305,7 @@ def write_all(universe: Universe, result: FetchResult,
               valuations: dict[str, ValuationView],
               forecasts: dict[str, SymbolForecast],
               overlay: MacroOverlay,
+              factor_views: Optional[dict[str, FactorView]] = None,
               forecaster_pin: Optional[str] = None,
               data_dir: Optional[Path] = None) -> dict:
     """Write every payload. Returns the meta dict for logging."""
@@ -250,12 +313,15 @@ def write_all(universe: Universe, result: FetchResult,
     symbols_dir = data_dir / "symbols"
     symbols_dir.mkdir(parents=True, exist_ok=True)
 
+    factor_views = factor_views or {}
     rows = []
     for symbol in sorted(result.bars):
         valuation = valuations.get(symbol)
-        rows.append(build_index_row(symbol, result, valuation, universe))
+        fv = factor_views.get(symbol)
+        rows.append(build_index_row(symbol, result, valuation, universe, fv))
         payload = build_symbol_payload(
             symbol, result, valuation, forecasts.get(symbol), overlay, universe,
+            factors=fv,
         )
         (symbols_dir / f"{symbol}.json").write_text(
             json.dumps(payload, separators=(",", ":"))
@@ -281,6 +347,7 @@ def write_all(universe: Universe, result: FetchResult,
         "symbols_failed": result.failures,
         "forecasts_ok": sum(1 for f in forecasts.values() if f.horizons),
         "forecaster_pin": forecaster_pin,
+        "factor_caveat": UNIVERSE_CAVEAT,
         "macro_overlay": {
             "available": overlay.available,
             "generated": overlay.generated,

@@ -195,6 +195,14 @@ jobs:
           git pull --rebase --autostash origin main || true
           git push origin HEAD:main
 
+      - name: Fold the new note into the dashboard payload
+        # Ordering matters: scripts/refresh.py built notes.json BEFORE Claude
+        # wrote today's note, so without this the Analysis tab is always one
+        # session behind. Runs whatever happened above; with no new note it
+        # simply rewrites the same file.
+        if: always() && steps.build.outcome == 'success'
+        run: python scripts/rebuild_notes.py
+
       # `always()` is deliberate: the payloads in docs/ were built by the
       # refresh step above and are worth publishing whatever happened to the
       # optional analysis note afterwards.

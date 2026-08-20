@@ -74,6 +74,10 @@
   `display: none` alone the chart auto-places into the 38px rail track.
 - **`min-height: 0` on `.layout`** lets the grid collapse below its content, so
   the footer paints on top of the cards. Leave it off.
+- **`anthropics/claude-code-action@v1` rejects `push` events** with
+  "Unsupported event type: push", failing in ~300ms. The refresh workflow
+  therefore skips the note on pushes and writes one only on `schedule` and
+  `workflow_dispatch`. Do not "fix" this by adding push back.
 - **`SimpleHTTPRequestHandler.log_message`'s format args are not always
   strings.** `send_error` passes an int status code as one of them, so
   filtering log noise by indexing into `args` and testing `in` crashes on

@@ -73,7 +73,14 @@ jobs:
           HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: |
           session="${{ steps.build.outputs.latest_session }}"
-          if [ "$HAS_TOKEN" != "true" ]; then
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # claude-code-action rejects push events outright ("Unsupported
+            # event type: push"), and a code push is not a trading session
+            # anyway — it should refresh and deploy without spending tokens.
+            # Notes come from the schedule and from workflow_dispatch.
+            echo "push event — refreshing and deploying, no analysis note"
+            echo "need_analysis=false" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_TOKEN" != "true" ]; then
             # Not an error. The dashboard is the deliverable; the note is an
             # extra that needs a secret the repo may not have yet.
             echo "::notice::CLAUDE_CODE_OAUTH_TOKEN is not set — publishing without an analysis note. Run 'claude setup-token' and add it as a repository secret to enable them."

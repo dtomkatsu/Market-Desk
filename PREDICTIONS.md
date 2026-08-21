@@ -194,6 +194,28 @@ hypothesis fails *directionally* as well as statistically — the
 volume-confirmed bucket, predicted to continue, carries the more negative
 point estimate at both 10 and 21 days.
 
+### Calendar windows: the placebo is the finding
+
+Turn-of-month (Ariel 1987; McConnell & Xu 2008) is the strongest calendar
+claim in the literature — those four sessions historically carried
+essentially the market's entire cumulative return. On SPY back to 1993, 401
+paired months: the turn-of-month window earns +0.037%/day over the rest of
+the month at t=+1.21, and a mid-month window of identical width earns
++0.033%/day at t=+1.17. The window holds 19% of sessions and 33% of
+cumulative return; the placebo holds 19% and 31%. On synthetic data with a
+planted effect the placebo stays flat while the real window lights up at
+t=3.6-5.6, so this is not a broken harness — in the SPY era the turn of the
+month simply carries no premium over an arbitrary window of the same width.
+In the last five years its point estimate is negative.
+
+FOMC announcements are flat in all three cells (day before, of, after), with
+the honest caveat attached: at n=40 only the full published 49bp
+pre-announcement drift was detectable, so a decayed remnant would be
+invisible — and daily bars cannot isolate a 14:00-to-14:00 intraday window
+in any case. Payroll Fridays are the only calendar cell with a pulse,
++0.106%/day over 33 years at t=+1.64, and it is dead in the recent era. The
+combined announcement-day premium in the FOMC era is −0.001% at t=−0.01.
+
 ## Why the split holds
 
 This is not an arbitrary line. Directional edges that are easy to see get

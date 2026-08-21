@@ -83,10 +83,14 @@ from market_desk.fetch import fetch_history            # noqa: E402
 SESSIONS_5Y = 5 * 252
 
 # Announcement (second) day of every scheduled FOMC meeting since the 5y
-# sample can begin. Source: the Fed's published meeting calendars
-# (federalreserve.gov/monetarypolicy/fomccalendars.htm), which run a year+
-# ahead. Nov 2024 really was Thursday the 7th — the election pushed it.
-# Extend by hand and re-verify against the site when the sample grows.
+# sample can begin, plus every scheduled meeting ahead. Source: the Fed's
+# published meeting calendars
+# (federalreserve.gov/monetarypolicy/fomccalendars.htm), re-verified against
+# that page 2026-08-21. Nov 2024 really was Thursday the 7th — the election
+# pushed it. Extend by hand and re-verify against the site; anything that
+# consumes forward dates from here must check the list has not run out
+# before its horizon, because a silently exhausted calendar reports "no
+# FOMC scheduled" rather than "I do not know".
 FOMC_ANNOUNCEMENTS = [
     "2021-09-22", "2021-11-03", "2021-12-15",
     "2022-01-26", "2022-03-16", "2022-05-04", "2022-06-15",
@@ -98,7 +102,12 @@ FOMC_ANNOUNCEMENTS = [
     "2025-01-29", "2025-03-19", "2025-05-07", "2025-06-18",
     "2025-07-30", "2025-09-17", "2025-10-29", "2025-12-10",
     "2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17",
-    "2026-07-29",
+    "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09",
+    # 2027, from the same published calendar. Announcement day is the SECOND
+    # day of each two-day meeting; taking the first would measure an ordinary
+    # session and dilute every FOMC cell toward zero.
+    "2027-01-27", "2027-03-17", "2027-04-28", "2027-06-09",
+    "2027-07-28", "2027-09-15", "2027-10-27", "2027-12-08",
 ]
 
 

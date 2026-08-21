@@ -332,23 +332,30 @@ def calendar_time(events: list[dict], resid: dict[str, list],
                   lag: int = 1):
     """Daily spread between the up-shock leg and the down-shock leg.
 
-    Each event contributes its name's residual return on each of the
-    `horizon` sessions after it. Dates where either leg is empty are
-    skipped, and the count of usable dates is reported.
+    Each NAME held contributes its residual return once per session,
+    however many live event windows it has. That deduplication is not a
+    nicety: a name with twenty overlapping filings would otherwise be
+    averaged in twenty times, so the "portfolio" would be event-weighted
+    and a single heavily-filed ticker could carry the whole result. The
+    give-away is a breadth number larger than the universe.
+
+    Dates where either leg is empty are skipped, and the count of usable
+    dates is reported.
     """
-    up: dict[str, list[float]] = defaultdict(list)
-    dn: dict[str, list[float]] = defaultdict(list)
+    up: dict[str, dict[str, float]] = defaultdict(dict)
+    dn: dict[str, dict[str, float]] = defaultdict(dict)
     for ev in events:
         series, dates = resid[ev["symbol"]], dates_by_symbol[ev["symbol"]]
         target = up if ev["up"] else dn
         for j in range(ev["i"] + lag, min(ev["i"] + lag + horizon, len(series))):
             v = series[j]
             if v is not None:
-                target[dates[j]].append(v)
+                target[dates[j]][ev["symbol"]] = v
 
     spread, breadth = [], []
     for day in sorted(set(up) & set(dn)):
-        spread.append(statistics.mean(up[day]) - statistics.mean(dn[day]))
+        spread.append(statistics.mean(up[day].values())
+                      - statistics.mean(dn[day].values()))
         breadth.append((len(up[day]) + len(dn[day])) / 2)
     return spread, (statistics.mean(breadth) if breadth else 0.0)
 

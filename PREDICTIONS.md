@@ -147,11 +147,16 @@ cleared the bar.
 | Volume-confirmed price shocks | `shock_study.py` | powered null at 2.5σ and 3.0σ |
 | Calendar windows (TOM / FOMC / payrolls) | `calendar_study.py` | null; turn-of-month is placebo-equivalent |
 | Volatility-managed sizing | `volmanaged_study.py` | best survivor, t=1.93 — and it never calls direction |
-| Insider Form 4 purchases | `insider_study.py` | right-signed at one month, underpowered on large caps |
+| Insider Form 4 purchases | `insider_study.py` | disclosure reprices the stock; drift after it is zero |
 
 Every script prints its own **minimum detectable effect**, because "found
 nothing" and "could not have found anything" are different sentences and
 only one of them is evidence.
+
+The insider study was later re-run on the S&P SmallCap 600 — the segment
+where the literature actually puts the effect — and that run is the one
+that produced the session's only large t-statistics. Working out what they
+were measuring is the most instructive part of this whole section.
 
 ### 52-week-high nearness inverts
 
@@ -248,34 +253,66 @@ is the one that reproduces here. Cederburg et al. (2020) stays attached:
 vol-managed alphas are fragile out-of-sample across most factors, the market
 factor is the strongest case, and one path cannot settle it.
 
-### Insider purchases: right-signed, honestly underpowered
+### Insider purchases: the disclosure moves the stock, and that is all
 
 The SEC's structured insider-transaction data sets, 19 quarters
-(2021q3-2026q1), 40,728 Form 4 filings parsed to 2,363 purchase and 25,773
-sale events above $10k — the classic 11-to-1 asymmetry, since people sell
-for houses and taxes but buy for one reason. The clock starts at the
-**filing** date, not the transaction date: the trade is inside information
-until filed, and one filing in the 2024q1 set arrived fifteen months late,
-which measured from its trade date would look like astonishing foresight.
+(2021q3-2026q1), 40,728 Form 4 filings, run against two universes: the
+S&P 500 and the pinned S&P SmallCap 600, which is where the literature
+concentrates the effect. Above $10k: 2,363 purchase and 25,773 sale events
+in large caps, 3,187 and 17,352 in small caps — the classic asymmetry, since
+people sell for houses and taxes but buy for one reason. The clock starts at
+the **filing** date, not the transaction date: the trade is inside
+information until filed, and one filing in the 2024q1 set arrived fifteen
+months late, which measured from its trade date would look like astonishing
+foresight.
 
-Every sign at one month matches the literature — purchases +0.94%, sales
-−0.41%, the spread +1.41% — and the magnitude sits close to Jeng, Metrick &
-Zeckhauser's ~50bp-1%/month. None of it clears t=2 (the strongest cell is
-the spread at t=+1.72), and by three months the purchase effect is exactly
-zero.
+The small-cap run first reported purchases +1.26% over 21 sessions and a
+purchases-minus-sales spread of +2.11% at t=+4.73 — comfortably past the
+t>3 hurdle, and the only result in this section that ever cleared it. It
+does not survive being taken apart. Decomposed into non-overlapping
+segments and measured against the right benchmark:
 
-This null is weaker than the shock study's, and the MDE column says why: the
-design's floor is 0.082%/day at a 21-day horizon, so resolving a
-literature-sized purchase effect would need roughly double this sample.
-Where the shock study *could* have seen the published effect and did not,
-this one could not have. The universe caveat compounds it and points the
-same way — the S&P 500 is the segment where insider effects are documented
-*weakest*; the literature concentrates them in small caps, where this repo
-has no pinned universe. A null here does not refute that result.
+| purchases, small-cap, equal-weight-neutral | return | t |
+|---|---|---|
+| day 0 — the filing session | +0.29% | +4.49 |
+| day 1 — first session after | +1.14% | **+16.07** |
+| days 2-21 — post-disclosure drift | +0.33% | +1.00 |
+| days 2-63 — post-disclosure drift | −0.06% | −0.09 |
+
+The entire effect is the market repricing a disclosure. Day 0 is the filing
+session itself, which cannot be traded on without knowing what the filing
+says before it is filed — that being the exact thing Form 4 discloses. Day
+1's return is close-to-close across the after-hours window where most Form
+4s land, so it is a gap, not an entry. **Post-disclosure drift — the only
+tradeable claim, and the only one Cohen, Malloy & Pomorski actually make —
+is zero at both horizons.**
+
+The large-cap run reproduces the same shape at the size the literature
+would predict: day 1 +0.42% (t=+7.07) against small-cap +1.14%, thinner
+names repricing harder, with drift again indistinguishable from zero
+(+0.17%, t=+0.61 over days 2-21). Two universes, one structure, and the
+information shows up entirely in the jump.
+
+This is a better result than the null it replaces. The earlier large-cap
+reading — "right-signed but underpowered" — was correct that the design
+could not resolve a drift effect there; the small-cap universe resolves it
+precisely, and the answer is that there is no drift to resolve. What there
+is instead is a clean, very large, and completely unexploitable measurement
+of how much a disclosure is worth.
+
+Survivorship bites hardest in this universe and is *not* neutral: S&P 600
+turnover is faster, index leavers did badly, and insider purchases in those
+names are missing, which would overstate a positive purchase result.
+Notably, the purchases-minus-sales spread is the cell least exposed to it,
+since both legs are drawn from the same surviving universe and the bias
+largely differences out.
 
 ### What the studies taught about method
 
-Three lessons outlived the signals, and all three are enforced in code:
+Five lessons outlived the signals, and all five are enforced in code.
+Three of them were found only because a result looked *too good*, which is
+the practical argument for keeping placebo and decomposition cells in a
+harness rather than only outcome cells:
 
 * **An estimator can manufacture a t of −4.68.** The shock harness first
   reported violent post-earnings *reversal* at t=−4.68 — the most
@@ -294,6 +331,23 @@ Three lessons outlived the signals, and all three are enforced in code:
   share two-thirds of their returns and t is inflated by about √3.
   `high52_study.py` prints the deflation factor rather than leaving a
   reader to notice.
+* **An event-weighted portfolio is not a portfolio.** The calendar-time
+  legs first averaged one residual per *event*, so a name with twenty live
+  filings was averaged in twenty times and a handful of heavily-filed
+  tickers could have carried the entire result. Small-cap sale filings run
+  to 29 per name here. The give-away was a breadth number of 902 names/day
+  in a 603-name universe — an impossibility printed in the output for
+  several runs before anyone read it. Both harnesses now count each NAME
+  once per session. Fixing it *raised* the t-statistics, which is worth
+  saying: the over-weighted names were adding noise, not the finding.
+* **The benchmark has to match the portfolio's weighting.** An
+  equal-weighted event leg residualized against a CAP-weighted index ETF
+  inherits a persistent equal-weight-minus-cap-weight tilt. Measured on
+  this universe it runs −0.016%/day (t=−3.13) — about −1.0% over 63
+  sessions, handed free to any leg broad enough to resemble the index. It
+  accounted for roughly two thirds of the raw insider *sale* effect. The
+  fix is a placebo the study now always computes: the whole universe,
+  equal-weighted, no event filter. Every cell is reported net of it.
 * **A throttled fetch is silently partial.** yfinance rate-limited a repeat
   500-symbol pull and a study ran happily on 298 names, caught only because
   a *lower* shock threshold reported *fewer* names than a higher one, which

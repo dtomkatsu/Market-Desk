@@ -3,6 +3,7 @@
 
     python scripts/insider_study.py                       # parse cache + run
     python scripts/insider_study.py --zips DIR            # (re)parse SEC zips
+    python scripts/insider_study.py --universe sp600      # small caps
     python scripts/insider_study.py --min-dollars 25000
     python scripts/insider_study.py --json out.json
 
@@ -46,11 +47,29 @@ Design choices, each of which moves the result and is therefore explicit:
   event's own alpha feedback excluded (the -4.68 lesson), calendar-time
   daily portfolios, Newey-West at the horizon lag.
 
-The standing caveat cuts the OTHER way from usual: this is the S&P 500,
-the segment where insider effects are documented WEAKEST — the literature
-concentrates them in small caps, where this repo has no clean universe. A
-null here does not refute the small-cap result; a positive here would be
-stronger than the literature requires.
+**Universes.** ``--universe sp500`` is the large-cap default; ``sp600`` runs
+the S&P SmallCap 600 pin, which is where the literature says these effects
+actually live — insider trades are documented as most informative in small,
+thinly-covered names, and the large-cap run here came back right-signed but
+under-powered. The small-cap cell is therefore the one with a real chance of
+resolving the effect, and it is also the one whose caveats bite hardest:
+
+* **The market proxy changes with the universe.** Residualizing S&P 600
+  names against SPY leaves the size factor sitting in the residual, so the
+  calendar-time portfolio would partly measure small-caps-versus-large-caps
+  rather than insider information. ``sp600`` therefore residualizes against
+  IJR, the S&P 600's own index ETF, which absorbs market and size together
+  because the universe *is* the index. ``--market`` overrides it.
+* **Survivorship is worse here, and it is not neutral.** The S&P 600 turns
+  over faster than the 500, so today's-members bias is larger — and it
+  points in a specific direction for this test. Names that fell out of the
+  index did badly; if insiders bought them on the way down, those purchases
+  are missing from the sample and the measured purchase effect is
+  overstated. Read a positive result with that thumb on the scale.
+* **Thinner names, noisier residuals.** Small-cap daily residuals carry more
+  idiosyncratic variance per name, which raises the per-name noise floor;
+  whether that is offset by more insider activity per name is exactly what
+  the MDE column reports rather than assumes.
 
 **Multiple testing.** Twelve cells (six statistics x two horizons); at t=2
 about 0.6 clear by chance; Harvey, Liu & Zhu (2016) hurdle stays t>3.
@@ -81,11 +100,16 @@ from market_desk.benchmark import load_constituents            # noqa: E402
 from market_desk.fetch import fetch_history                    # noqa: E402
 
 from shock_study import (                                      # noqa: E402
-    MARKET, MIN_COVERAGE, blackout_sessions, calendar_time,
+    MIN_COVERAGE, blackout_sessions, calendar_time, load_earnings,
     newey_west, residual_returns,
 )
 
-EVENT_CACHE = REPO_ROOT / ".cache" / "insider_events.json"
+# Per-universe pin, market proxy and event cache. The proxy is not a detail:
+# see the docstring on why sp600 must not be residualized against SPY.
+UNIVERSES = {
+    "sp500": {"pin": "sp500.csv", "market": "SPY", "label": "S&P 500"},
+    "sp600": {"pin": "sp600.csv", "market": "IJR", "label": "S&P SmallCap 600"},
+}
 EARNINGS_CACHE = REPO_ROOT / ".cache" / "earnings_dates.json"
 CLUSTER_SESSIONS = 5      # distinct buyers within this window = a cluster buy
 MIN_EVENTS = 40
@@ -179,7 +203,8 @@ def parse_quarter(path: Path, universe: set[str]) -> list[dict]:
     return filings
 
 
-def build_event_cache(zip_dir: Path, universe: set[str]) -> list[dict]:
+def build_event_cache(zip_dir: Path, universe: set[str],
+                      cache: Path) -> list[dict]:
     zips = sorted(zip_dir.glob("*.zip"))
     if not zips:
         raise SystemExit(f"no ZIPs in {zip_dir}; download the SEC insider "
@@ -190,9 +215,9 @@ def build_event_cache(zip_dir: Path, universe: set[str]) -> list[dict]:
         filings.extend(rows)
         print(f"  {z.name}: {len(rows)} Form 4 filings with P/S dollars "
               f"in universe")
-    EVENT_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    EVENT_CACHE.write_text(json.dumps(filings))
-    print(f"  cached {len(filings)} filings -> {EVENT_CACHE}")
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(filings))
+    print(f"  cached {len(filings)} filings -> {cache}")
     return filings
 
 
@@ -248,23 +273,58 @@ def mark_clusters(purchases: list[dict]) -> None:
             ev["cluster"] = len(owners) >= 2
 
 
+def universe_series(resid: dict[str, list],
+                    panel_dates: dict[str, list[str]],
+                    min_names: int = 100) -> dict[str, float]:
+    """Equal-weighted mean residual across the whole universe, per session.
+
+    This is the benchmark an equal-weighted event leg must be measured
+    against, and getting it wrong was worth about two thirds of the raw
+    sale-leg "effect". The index ETF is CAP-weighted, so residualizing
+    against it leaves a persistent equal-weight-minus-cap-weight tilt in
+    every broad subset: measured here it runs -0.016%/day (t=-3.13),
+    which is -1.0% over 63 sessions handed to any leg wide enough to
+    resemble the index. Differencing against this series removes it.
+    """
+    daily: dict[str, dict[str, float]] = defaultdict(dict)
+    for symbol, series in resid.items():
+        dates = panel_dates[symbol]
+        for j, v in enumerate(series):
+            if v is not None:
+                daily[dates[j]][symbol] = v
+    return {d: statistics.mean(v.values())
+            for d, v in daily.items() if len(v) >= min_names}
+
+
 def leg_alpha(events: list[dict], resid: dict[str, list],
               panel_dates: dict[str, list[str]], horizon: int,
-              lag: int = 1) -> dict:
+              lag: int = 1, baseline: dict[str, float] | None = None) -> dict:
     """Calendar-time portfolio of names with a live event window: mean
-    daily residual, Newey-West at the horizon lag."""
-    daily: dict[str, list[float]] = defaultdict(list)
+    daily residual, Newey-West at the horizon lag.
+
+    Each NAME counts once per session no matter how many of its filings
+    are live — insiders file in bursts, and small-cap sale filings run to
+    29 per name across this sample, so an event-weighted average would
+    hand a handful of heavily-filed tickers the entire result.
+    """
+    daily: dict[str, dict[str, float]] = defaultdict(dict)
     for ev in events:
         series, ds = resid[ev["symbol"]], panel_dates[ev["symbol"]]
         for j in range(ev["i"] + lag, min(ev["i"] + lag + horizon, len(series))):
             v = series[j]
             if v is not None:
-                daily[ds[j]].append(v)
-    series = [statistics.mean(v) for _, v in sorted(daily.items())]
+                daily[ds[j]][ev["symbol"]] = v
+    leg = {d: statistics.mean(v.values()) for d, v in daily.items() if v}
+    if baseline is not None:
+        days = sorted(set(leg) & set(baseline))
+        series = [leg[d] - baseline[d] for d in days]
+    else:
+        days = sorted(leg)
+        series = [leg[d] for d in days]
     if len(series) < 60:
         return {"n_events": len(events), "dates": len(series)}
     mean, se, t = newey_west(series, horizon)
-    breadth = statistics.mean(len(v) for v in daily.values())
+    breadth = statistics.mean(len(daily[d]) for d in days)
     return {"n_events": len(events), "dates": len(series), "mean_daily": mean,
             "t": t, "mde_daily_t2": 2 * se, "car_h": mean * horizon,
             "breadth": breadth}
@@ -287,36 +347,59 @@ def show(label: str, cell: dict, horizon: int, results: list, key: str):
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--universe", choices=sorted(UNIVERSES), default="sp500")
+    ap.add_argument("--market", help="index ETF to residualize against "
+                                     "(default: the universe's own)")
     ap.add_argument("--zips", help="directory of SEC quarterly ZIPs; reparse "
                                    "even if the event cache exists")
     ap.add_argument("--period", default="5y")
     ap.add_argument("--min-dollars", type=float, default=10_000)
     ap.add_argument("--horizons", default="21,63")
+    ap.add_argument("--entry-lag", type=int, default=1,
+                    help="sessions between the filing and the start of the "
+                         "measured window (1 = next session; raise it to "
+                         "shed the filing-day reaction and the bid-ask "
+                         "bounce, and see whether drift survives without them)")
+    ap.add_argument("--skip-earnings-cell", action="store_true",
+                    help="skip the earnings-date fetch (slow on a fresh "
+                         "universe) and omit the ex-earnings cell")
     ap.add_argument("--json")
     args = ap.parse_args(argv)
     horizons = [int(h) for h in args.horizons.split(",")]
 
-    symbols = [r["symbol"] for r in load_constituents()]
+    spec = UNIVERSES[args.universe]
+    market_sym = args.market or spec["market"]
+    pin = REPO_ROOT / "config" / "benchmark" / spec["pin"]
+    event_cache = REPO_ROOT / ".cache" / f"insider_events_{args.universe}.json"
+
+    symbols = [r["symbol"] for r in load_constituents(pin)]
+    if not symbols:
+        raise SystemExit(f"no pinned {spec['label']} list at {pin}; run "
+                         f"scripts/refresh_constituents.py --index "
+                         f"{args.universe}")
     universe = {norm_symbol(s) for s in symbols}
+    print(f"{spec['label']}: {len(symbols)} names, residualized against "
+          f"{market_sym}")
 
     if args.zips:
-        filings = build_event_cache(Path(args.zips), universe)
-    elif EVENT_CACHE.exists():
-        filings = json.loads(EVENT_CACHE.read_text())
-        print(f"{len(filings)} filings from {EVENT_CACHE}")
+        filings = build_event_cache(Path(args.zips), universe, event_cache)
+    elif event_cache.exists():
+        filings = json.loads(event_cache.read_text())
+        print(f"{len(filings)} filings from {event_cache}")
     else:
-        raise SystemExit("no event cache; run once with --zips DIR")
+        raise SystemExit(f"no event cache for {args.universe}; run once with "
+                         f"--zips DIR")
 
-    print(f"fetching {len(symbols)} constituents + {MARKET} ({args.period})")
-    bars, failures = fetch_history(symbols + [MARKET], args.period)
+    print(f"fetching {len(symbols)} constituents + {market_sym} ({args.period})")
+    bars, failures = fetch_history(symbols + [market_sym], args.period)
     print(f"  {len(bars)} ok, {len(failures)} failed")
-    if MARKET not in bars:
-        raise SystemExit(f"{MARKET} failed to download; rate limited? retry.")
+    if market_sym not in bars:
+        raise SystemExit(f"{market_sym} failed to download; rate limited? retry.")
     if len(bars) < MIN_COVERAGE * (len(symbols) + 1):
         raise SystemExit(f"only {len(bars)} of {len(symbols) + 1} downloaded; "
                          f"refusing a truncated universe. Retry later.")
 
-    market_bars = bars.pop(MARKET)
+    market_bars = bars.pop(market_sym)
     market = {}
     for i in range(1, len(market_bars)):
         p, c = market_bars[i - 1].close, market_bars[i].close
@@ -339,7 +422,14 @@ def main(argv=None) -> int:
     purchases, sales = sides.get("P", []), sides.get("S", [])
     mark_clusters(purchases)
 
-    earnings = json.loads(EARNINGS_CACHE.read_text()) if EARNINGS_CACHE.exists() else {}
+    # The ex-earnings cell needs dates for THIS universe; load_earnings
+    # tops up the shared cache with whatever symbols it is missing rather
+    # than assuming a previous run covered them.
+    if args.skip_earnings_cell:
+        earnings = {}
+        print("  --skip-earnings-cell: ex-earnings cell will be omitted")
+    else:
+        earnings = load_earnings(sorted(universe), False)
     blocked: dict[str, set[int]] = {}
     for s, stamps in earnings.items():
         if s in panel_dates and stamps:
@@ -359,25 +449,61 @@ def main(argv=None) -> int:
     print(f"  median purchase filing ${med:,.0f}; "
           f"{len({e['symbol'] for e in purchases})} names with a purchase")
 
+    baseline = universe_series(resid, panel_dates)
+    print(f"  equal-weight universe baseline built over {len(baseline)} sessions")
+
     results: list[dict] = []
+
+    # The decomposition that decides what this study actually found: a
+    # disclosure that reprices a stock is not a signal anyone can trade,
+    # because day 0 is the filing session and day 1's close-to-close spans
+    # the after-hours window most Form 4s land in. Only days 2+ are drift.
+    print("\n" + "=" * 74)
+    print("DISCLOSURE vs DRIFT — equal-weight-neutral")
+    print("=" * 74)
+    for label, evs in (("purchases", purchases), ("sales", sales)):
+        print(f"  {label}")
+        for name, h, lg, key in (("day 0 (filing session)", 1, 0, "d0"),
+                                 ("day 1 (first session after)", 1, 1, "d1"),
+                                 ("days 2-21 (drift)", 20, 2, "d2_21"),
+                                 ("days 2-63 (drift)", 62, 2, "d2_63")):
+            c = leg_alpha(evs, resid, panel_dates, h, lg, baseline)
+            key_full = f"{label[0]}_{key}"
+            results.append({"cell": key_full, "horizon": h, "lag": lg, **c})
+            if "t" not in c:
+                print(f"    {name:32} thin")
+                continue
+            print(f"    {name:32} {c['car_h'] * 100:+7.2f}%   t = {c['t']:+6.2f}")
+    print("  Day 0 and day 1 are the market repricing a disclosure, not a "
+          "forecast of it.\n  Days 2+ are the only tradeable claim, and the "
+          "only one the literature makes.")
+
     for horizon in horizons:
         print("\n" + "=" * 74)
-        print(f"HORIZON {horizon} SESSIONS — calendar-time daily residual alpha")
+        print(f"HORIZON {horizon} SESSIONS — equal-weight-neutral, "
+              f"INCLUDING the disclosure jump")
         print("=" * 74)
-        show("purchases, all", leg_alpha(purchases, resid, panel_dates, horizon),
+        lag = args.entry_lag
+        show("purchases, all",
+             leg_alpha(purchases, resid, panel_dates, horizon, lag, baseline),
              horizon, results, "p_all")
-        show("purchases, discretionary", leg_alpha(p_disc, resid, panel_dates, horizon),
+        show("purchases, discretionary",
+             leg_alpha(p_disc, resid, panel_dates, horizon, lag, baseline),
              horizon, results, "p_discretionary")
-        show("purchases, clustered", leg_alpha(p_cluster, resid, panel_dates, horizon),
+        show("purchases, clustered",
+             leg_alpha(p_cluster, resid, panel_dates, horizon, lag, baseline),
              horizon, results, "p_cluster")
-        show("purchases, ex-earnings", leg_alpha(p_clean, resid, panel_dates, horizon),
-             horizon, results, "p_ex_earnings")
-        show("sales, all", leg_alpha(sales, resid, panel_dates, horizon),
+        if earnings:
+            show("purchases, ex-earnings",
+                 leg_alpha(p_clean, resid, panel_dates, horizon, lag, baseline),
+                 horizon, results, "p_ex_earnings")
+        show("sales, all",
+             leg_alpha(sales, resid, panel_dates, horizon, lag, baseline),
              horizon, results, "s_all")
 
         both = ([{**e, "up": True} for e in purchases]
                 + [{**e, "up": False} for e in sales])
-        spread, breadth = calendar_time(both, resid, panel_dates, horizon)
+        spread, breadth = calendar_time(both, resid, panel_dates, horizon, lag)
         mean, se, t = newey_west(spread, horizon)
         print(f"  {'purchases minus sales':26} {'':8}   daily {mean * 100:+.3f}%   "
               f"~{horizon}d CAR {mean * horizon * 100:+.2f}%   t = {t:+.2f}   "
@@ -392,13 +518,23 @@ def main(argv=None) -> int:
           f"separates insider information from PEAD wearing a Form 4.")
     print(f"Multiple testing: {cells} cells, ~{cells * 0.05:.1f} clear t=2 by "
           f"chance; Harvey, Liu & Zhu (2016) hurdle is t>3.")
-    print("Universe caveat: S&P 500 large caps are where insider effects are "
-          "documented WEAKEST; a null here does not refute the small-cap "
-          "literature. Survivorship: pinned list, today's members.")
+    if args.universe == "sp500":
+        print("Universe caveat: S&P 500 large caps are where insider effects "
+              "are documented WEAKEST; a null here does not refute the "
+              "small-cap literature.")
+    else:
+        print("Universe caveat: small caps are where the literature puts the "
+              "effect, so this is the powered test — but survivorship bites "
+              "hardest here and is NOT neutral: index leavers did badly, and "
+              "insider purchases in those names are missing, which overstates "
+              "a positive purchase result.")
+    print("Survivorship: pinned list, today's members.")
 
     if args.json:
         Path(args.json).write_text(json.dumps(
-            {"period": args.period, "min_dollars": args.min_dollars,
+            {"universe": args.universe, "market": market_sym,
+             "period": args.period, "min_dollars": args.min_dollars,
+             "entry_lag": args.entry_lag,
              "n_filings": len(filings), "n_purchases": len(purchases),
              "n_sales": len(sales), "cells_tested": cells,
              "results": results}, indent=2))

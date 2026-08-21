@@ -1,11 +1,35 @@
 # Scope: predictive analysis on top of the existing stack
 
-**Status: scoped 2026-08-21, after the five-study directional sweep.
-Recommendation: build Tier 1 — it composes already-validated pieces and one
-genuinely untested directional anomaly whose data this scope confirmed is
-available. Everything here inherits the method constraints at the bottom;
-nothing here re-litigates the five rejected signals.** Feasibility numbers
-below are measured, not estimated.
+**Status: Tier 1 BUILT and run, 2026-08-21 (same day it was scoped).
+Results, one line each — full write-ups in PREDICTIONS.md:**
+
+1. **Prediction registry: live.** `predictions_log.py` /
+   `predictions_grade.py`, wired into the daily workflow; 54 claims on the
+   record for 2026-08-21, scoreboard between markers in PREDICTIONS.md.
+   First stress test already scheduled: the Oct 28 - Nov 3 cluster.
+2. **Event-aware bands: shipped the test, passed it.** Flat bands cover
+   51.5-51.8% of earnings weeks against an 80% claim; event-aware bands
+   79.4% (tracked) / 76.5% (S&P 500, n=7,547) — 87-98% of the shortfall
+   closed, no overshoot. `event_range_study.py`; core in
+   `market_desk/predictions.py` (tested).
+3. **PEAD on real surprises: the sixth directional null.** 16,767 ranked
+   reactions, 0 of 24 pre-registered cells at t>3; small-cap long-horizon
+   cells are powered nulls (MDE 0.03%/day); the only small-cap action is
+   lag-1 5-day reversal that dies at lag 2 (bid-ask bounce).
+4. **Conditional amplification: knob refused.** Turbulent-minus-quiet
+   0.96x, t=-1.03, MDE ~9% over 16,918 reactions — and the null validates
+   the independence the event-aware band arithmetic assumes.
+5. **Insider gap decomposition: 83-87% gap.** The pre-registered decision
+   cell (small-cap purchases, open-to-close) is +0.17% at t=+3.15 —
+   nonzero, cost-exposed, survivorship-inflated; moves the nightly EDGAR
+   poll to Tier 2 with numbers, ships nothing.
+
+**Tier 2 below is NOT built. It is the parked backlog** — each item still
+carries its probe gate, and nothing in it should start without re-reading
+the method constraints at the bottom. The insider result above adds one
+entry to it (the nightly EDGAR poll question); the PEAD null retires any
+appetite for surprise-based direction beyond it. Feasibility numbers below
+are measured, not estimated.
 
 ## What "predictive" now means in this repo
 
@@ -108,7 +132,7 @@ If open→close is ~zero, the finding is closed honestly and permanently. If
 it is materially positive, a same-day EDGAR poll becomes a real design
 question — and only then. Effort: ~half-day. Prior: mostly gap.
 
-## Tier 2 — probe first, or accept known power limits
+## Tier 2 — parked backlog (NOT built; probe gates still apply)
 
 - **Combined-universe momentum (+ nearness-neutralized).** ~370/leg
   terciles vs 164 today; if monthly sd scales ~1/√2.2, SE 0.50%→0.34% and
@@ -134,6 +158,11 @@ question — and only then. Effort: ~half-day. Prior: mostly gap.
   fetch via Claude in Chrome and pin like FOMC (with the same
   exhaustion guard). Completes the macro calendar swing_forecast shows.
   ~1 hour once fetched.
+- **Nightly EDGAR poll for small-cap purchase filings** (added by the
+  Tier-1 gap result): +0.17% open-to-close at t=+3.15 is the ceiling
+  BEFORE costs and survivorship; ~2-3 qualifying filings/day. Only worth
+  designing if a realistic cost model leaves anything, and it would feed a
+  size-awareness badge, never a directional call. ~1 day to prototype.
 - **Regime transition matrix.** Turn `validate_regimes` persistence into
   explicit P(state next week | state today) per name, walk-forward,
   verdict-gated — feeds the registry as a probabilistic claim. ~Half-day.

@@ -31,6 +31,19 @@ calibrated prediction also tells you its own failure rate — this one should
 miss about one week in five, and if it misses more often than that, it is
 broken.
 
+**Upgraded 2026-08-21: the bands are now event-aware.** A flat band
+spanning an earnings date claims 80% and delivers barely better than a coin
+flip — 51.5% on the tracked universe, 51.8% across the S&P 500 (n=7,547
+event windows). Inflating the reaction session's variance by the name's own
+walk-forward amplification (quadratically: an a-times session contributes
+a² of variance) takes event-window coverage to 79.4% and 76.5%
+respectively, closing 87-98% of the shortfall without overshooting, at the
+honest price of ~75-82% wider bands on those windows
+(`event_range_study.py`). Quiet windows are the control — both arms
+identical, 82.7-82.8%. These bands, and every other dated claim the
+dashboard makes, are now also **logged ex ante and graded after the fact**
+— see the live record at the top of this document.
+
 This is validated on the index/sector ETFs and large caps in the tracked
 universe. On roughly a third of names — including 4 of the 5 current
 holdings (XYL, TT, CMPS, NXT) — walk-forward testing found **no separation**
@@ -146,8 +159,9 @@ forecastable, so the codebase does not try. That is a comfortable thing to
 assert and an uncomfortable thing to check, because the check can come back
 the other way. This section is the check. Five candidate directional-timing
 signals were pre-specified from the empirical literature, implemented as
-standalone study scripts alongside `momentum_study.py`, and run. None
-cleared the bar.
+standalone study scripts alongside `momentum_study.py`, and run; a sixth —
+post-earnings drift on real surprises, the one the original five could not
+reach without new data — followed on 2026-08-21. None cleared the bar.
 
 | signal | script | result |
 |---|---|---|
@@ -156,6 +170,7 @@ cleared the bar.
 | Calendar windows (TOM / FOMC / payrolls) | `calendar_study.py` | null; turn-of-month is placebo-equivalent |
 | Volatility-managed sizing | `volmanaged_study.py` | best survivor, t=1.93 — and it never calls direction |
 | Insider Form 4 purchases | `insider_study.py` | disclosure reprices the stock; drift after it is zero |
+| PEAD on real surprises | `pead_study.py` | 0 of 24 pre-registered cells at t>3; small caps a powered null |
 
 Every script prints its own **minimum detectable effect**, because "found
 nothing" and "could not have found anything" are different sentences and
@@ -315,6 +330,49 @@ Notably, the purchases-minus-sales spread is the cell least exposed to it,
 since both legs are drawn from the same surviving universe and the bias
 largely differences out.
 
+**Coda (2026-08-21): the repricing decomposed.** Splitting day 1 into the
+overnight gap and open-to-close (`insider_gap_study.py`) settles what the
+jump is made of: the gap carries 83-87% of it. The one pre-registered
+decision cell — small-cap purchases, open-to-close — is **+0.17% at
+t=+3.15**: not zero, capturable at the open auction after a nightly EDGAR
+poll, and small enough that small-cap round-trip costs eat a real fraction
+while survivorship overstates the rest. It ships nowhere; it moves the
+filing-monitor question from closed to "Tier 2, with numbers." Large caps:
++0.04%, t=0.9 — nothing survives the open there.
+
+### Post-earnings drift on real surprises: the sixth design, same answer
+
+The sweep's original five could not test Bernard-Thomas drift for want of
+surprise data; the scope probe found Yahoo carries `Surprise(%)` for 22-24
+past events per name, and `pead_study.py` ran the battery pre-registered
+in PREDICTIVE_ANALYSIS_SCOPE.md: within-quarter surprise ranks, terciles
+and deciles, horizons 5/21/63, entry lags 1 and 2, both universes, every
+estimator lesson inherited. 16,767 ranked reactions.
+
+**0 of 24 cells at the t>3 hurdle; 3 at |t|>=2 against ~1.2 expected by
+chance.** And the pattern the anomaly predicts fails on its own terms:
+PEAD is supposed to concentrate in small caps, where instead the
+long-horizon cells are the best-powered nulls in the battery (MDE
+0.03%/day at 63 sessions, point estimates ~zero). The S&P 600's only
+action is 5-day lag-1 *reversal* (t=-2.4 to -2.8) that fades at lag 2 —
+the bid-ask-bounce signature the lag-2 arm exists to catch. Large caps
+lean mildly positive at 63 days (+1.2-1.3% CAR, t=2.0-2.2, surviving lag
+2) — the wrong universe for the theory, two cells of twenty-four, short
+of the bar. Yahoo's retail-grade consensus adds sort noise that biases
+toward the null; within that limit, the sixth design joins the five.
+
+### The knob that was refused: state-conditional event sizes
+
+`conditional_amp_study.py` asked whether a name reporting from the top
+third of its own trailing volatility reacts bigger than the same name
+reporting from a quiet state — the upgrade that would have made
+event-aware bands state-dependent. Pooled over 16,918 reactions on 1,084
+names, clustered by date: turbulent-minus-quiet **0.96x, t=-1.03, MDE
+~9%** of reaction size. A powered null, and a useful one twice over: the
+knob is refused rather than fitted, and the independence it establishes is
+exactly what the event-aware band arithmetic assumes when it composes
+volatility and amplification multiplicatively with no interaction term.
+
 ### What the studies taught about method
 
 Five lessons outlived the signals, and all five are enforced in code.
@@ -366,7 +424,7 @@ harness rather than only outcome cells:
 ## Why the split holds
 
 This is not an arbitrary line, and as of 2026-08-20 it is not only an
-argument — five pre-specified directional signals were tested and none
+argument — six pre-specified directional signals were tested and none
 survived, while the volatility-side machinery kept validating. Directional
 edges that are easy to see get traded away — if "stock with rank X will go up" were reliably true and
 simple to compute, it would already be priced in. Magnitude and timing
@@ -386,8 +444,8 @@ a name's regime label is even worth reading. The sizing studies above point
 the same way: the only lever that measured up is one that never names a
 direction, and its clearest benefit — a drawdown cut roughly in half at
 equal Sharpe — needs no alpha claim to hold. Do not use anything here for
-entry or exit timing on direction. That question is now asked in five
-places in this codebase and answered "no" in all five, which is a stronger
+entry or exit timing on direction. That question is now asked in six
+places in this codebase and answered "no" in all six, which is a stronger
 statement than the deliberate silence it replaces.
 
 ---

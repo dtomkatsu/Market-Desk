@@ -248,10 +248,65 @@ is the one that reproduces here. Cederburg et al. (2020) stays attached:
 vol-managed alphas are fragile out-of-sample across most factors, the market
 factor is the strongest case, and one path cannot settle it.
 
+### Insider purchases: right-signed, honestly underpowered
+
+The SEC's structured insider-transaction data sets, 19 quarters
+(2021q3-2026q1), 40,728 Form 4 filings parsed to 2,363 purchase and 25,773
+sale events above $10k — the classic 11-to-1 asymmetry, since people sell
+for houses and taxes but buy for one reason. The clock starts at the
+**filing** date, not the transaction date: the trade is inside information
+until filed, and one filing in the 2024q1 set arrived fifteen months late,
+which measured from its trade date would look like astonishing foresight.
+
+Every sign at one month matches the literature — purchases +0.94%, sales
+−0.41%, the spread +1.41% — and the magnitude sits close to Jeng, Metrick &
+Zeckhauser's ~50bp-1%/month. None of it clears t=2 (the strongest cell is
+the spread at t=+1.72), and by three months the purchase effect is exactly
+zero.
+
+This null is weaker than the shock study's, and the MDE column says why: the
+design's floor is 0.082%/day at a 21-day horizon, so resolving a
+literature-sized purchase effect would need roughly double this sample.
+Where the shock study *could* have seen the published effect and did not,
+this one could not have. The universe caveat compounds it and points the
+same way — the S&P 500 is the segment where insider effects are documented
+*weakest*; the literature concentrates them in small caps, where this repo
+has no pinned universe. A null here does not refute that result.
+
+### What the studies taught about method
+
+Three lessons outlived the signals, and all three are enforced in code:
+
+* **An estimator can manufacture a t of −4.68.** The shock harness first
+  reported violent post-earnings *reversal* at t=−4.68 — the most
+  significant-looking number produced in any of these studies, and pure
+  artifact. Its market-model residual subtracted a trailing-252-day alpha,
+  so each shock sat inside the window pricing its own following year: one
+  +8% day lifts estimated daily alpha by ~8%/252 and that gets subtracted
+  from every subsequent residual, about −2% over 63 sessions conjured from
+  nothing. Predicted −2%, measured −1.77%. Dropping alpha flips the same
+  cell to +1.04. Entry lags of 1, 2 and 3 sessions were checked first and
+  ruled out the bid-ask bounce, which is what sent the search to the
+  estimator. `--alpha include` is retained so the artifact can be
+  reproduced rather than argued about.
+* **Overlapping windows inflate their own t.** A 63-session forward window
+  sampled every 21 sessions overlaps three deep; consecutive observations
+  share two-thirds of their returns and t is inflated by about √3.
+  `high52_study.py` prints the deflation factor rather than leaving a
+  reader to notice.
+* **A throttled fetch is silently partial.** yfinance rate-limited a repeat
+  500-symbol pull and a study ran happily on 298 names, caught only because
+  a *lower* shock threshold reported *fewer* names than a higher one, which
+  is impossible. `shock_study.py` and `insider_study.py` now refuse below
+  90% coverage. Silently wrong data is worse than missing data — the same
+  rule that keeps options out of this codebase.
+
 ## Why the split holds
 
-This is not an arbitrary line. Directional edges that are easy to see get
-traded away — if "stock with rank X will go up" were reliably true and
+This is not an arbitrary line, and as of 2026-08-20 it is not only an
+argument — five pre-specified directional signals were tested and none
+survived, while the volatility-side machinery kept validating. Directional
+edges that are easy to see get traded away — if "stock with rank X will go up" were reliably true and
 simple to compute, it would already be priced in. Magnitude and timing
 patterns survive that pressure much better, because knowing volatility will
 be elevated next week does not tell a trader which way to position, so
@@ -265,9 +320,13 @@ numbers are for.
 
 Use the predictable quantities for risk decisions: how large a position can
 be before an ordinary week hurts, which week to expect turbulence, whether
-a name's regime label is even worth reading. Do not use anything here for
-entry or exit timing on direction — that question is asked and answered
-nowhere in this codebase, deliberately.
+a name's regime label is even worth reading. The sizing studies above point
+the same way: the only lever that measured up is one that never names a
+direction, and its clearest benefit — a drawdown cut roughly in half at
+equal Sharpe — needs no alpha claim to hold. Do not use anything here for
+entry or exit timing on direction. That question is now asked in five
+places in this codebase and answered "no" in all five, which is a stronger
+statement than the deliberate silence it replaces.
 
 ---
 

@@ -67,6 +67,20 @@ jobs:
         id: build
         run: python scripts/refresh.py
 
+      - name: Log today's predictions
+        # Writes the day's falsifiable claims (ranges, event sizes, regime
+        # persistence, the book band) to history/predictions.jsonl BEFORE
+        # their windows open. Idempotent — a re-run adds nothing.
+        continue-on-error: true
+        run: python scripts/predictions_log.py
+
+      - name: Grade matured predictions
+        # Scores every claim whose window has closed and rewrites the live
+        # scoreboard between the registry markers in PREDICTIONS.md. Like
+        # the analysis note, a bad grading day must never block the deploy.
+        continue-on-error: true
+        run: python scripts/predictions_grade.py
+
       - name: Decide whether today needs an analysis note
         id: gate
         env:
@@ -186,15 +200,17 @@ jobs:
         run: |
           git config user.name  "market-desk[bot]"
           git config user.email "market-desk@users.noreply.github.com"
-          # history/ holds both the factor series and the benchmark snapshot;
-          # the snapshot is what lets a throttled Yahoo day fall back instead
-          # of silently reverting every percentile to watchlist-relative.
-          git add history/ config/benchmark/
+          # history/ holds the factor series, the benchmark snapshot, and
+          # the prediction registry + grades; PREDICTIONS.md carries the
+          # scoreboard the grader rewrites. The snapshot is what lets a
+          # throttled Yahoo day fall back instead of silently reverting
+          # every percentile to watchlist-relative.
+          git add history/ config/benchmark/ PREDICTIONS.md
           if git diff --cached --quiet; then
             echo "no history change"
             exit 0
           fi
-          git commit -m "history: factor + benchmark snapshot ${{ steps.build.outputs.latest_session }}"
+          git commit -m "history: snapshots + prediction registry ${{ steps.build.outputs.latest_session }}"
           git pull --rebase --autostash origin main || true
           git push origin HEAD:main
 

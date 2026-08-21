@@ -14,3 +14,7 @@ __pycache__/
 # public and git history is permanent — this must never be committed.
 config/holdings.local.yml
 config/*.local.yml
+
+# Cached third-party lookups (earnings dates). Slow to fetch, cheap to
+# rebuild, and stale the moment a company reschedules — never committed.
+.cache/

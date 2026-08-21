@@ -216,6 +216,38 @@ in any case. Payroll Fridays are the only calendar cell with a pulse,
 +0.106%/day over 33 years at t=+1.64, and it is dead in the recent era. The
 combined announcement-day premium in the FOMC era is −0.001% at t=−0.01.
 
+### Volatility-managed sizing: the one that survives, and why it is allowed
+
+This is the only candidate that does not predict direction. The weight never
+goes negative; it decides *how much* of a position to hold, from the one
+regularity `validate_regimes` has actually confirmed locally — volatility
+clusters. Moreira & Muir (2017) show that scaling exposure by inverse
+variance earns positive alpha against buy-and-hold.
+
+On SPY 1994-2026, against a baseline of +12.05%/yr at 18.77% vol, Sharpe
+0.51, max drawdown −55%:
+
+| construction | alpha/yr | t | Sharpe | maxDD | turnover | breakeven cost |
+|---|---|---|---|---|---|---|
+| matched-vol (academic, uncapped) | +4.47% | +1.81 | 0.58 | −50% | 8.4×/yr | 0.54% |
+| no leverage, monthly | +1.71% | +1.93 | 0.60 | −29% | 1.8×/yr | 0.94% |
+| daily EWMA λ=0.94, no leverage | +0.79% | +0.85 | 0.55 | −38% | 4.3×/yr | 0.18% |
+| no leverage, last ~5y | +2.22% | +1.19 | 0.73 | −13% | 1.5×/yr | 1.45% |
+
+No cell clears t=2, so by this document's standard the alpha is **not a
+claim**. But the part that needs no alpha at all is mechanical: the same or
+better Sharpe at 60% of the volatility, with the worst drawdown cut from
+−55% to −29%. That is what vol-targeting buys when alpha is exactly zero,
+and it follows from clustering alone. It is also implementable — 1.8×
+annual turnover against a 0.94% breakeven one-way cost, on the most liquid
+instrument in existence — where every rejected signal above would have
+traded at the worst possible moment for spread. Note that the daily variant
+has *less* alpha and a *worse* drawdown than the monthly one: chasing
+volatility daily whipsaws, and the monthly signal the literature validated
+is the one that reproduces here. Cederburg et al. (2020) stays attached:
+vol-managed alphas are fragile out-of-sample across most factors, the market
+factor is the strongest case, and one path cannot settle it.
+
 ## Why the split holds
 
 This is not an arbitrary line. Directional edges that are easy to see get

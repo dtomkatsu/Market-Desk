@@ -83,18 +83,27 @@ here rather than assumed — `scripts/momentum_study.py`, S&P 500 cross-section,
 
 | | mean spread | t | positive months |
 |---|---|---|---|
-| terciles (~164/leg) | +0.82%/mo | +1.55 | 31/46 (67%) |
-| deciles (~49/leg) | +1.76%/mo | +1.58 | 28/46 (61%) |
+| terciles (~164/leg) | +0.69%/mo | +1.39 | 31/46 (67%) |
+| deciles (~49/leg) | +1.61%/mo | +1.61 | 28/46 (61%) |
 
-**Suggestive, not established.** t=1.55 is short of the conventional t=2, so
+**These numbers drift with the data vintage, and that is itself worth
+knowing.** The same untouched script produced +0.82%/mo (t=1.55) on a fetch
+one day earlier; re-anchoring a 5-year window moves the monthly sample grid
+and every spread with it. Against a monthly standard deviation of 3.36% a
+0.13%/mo wander is ordinary noise — but a figure quoted to two decimals
+invites more confidence than a number that moves that much between Tuesday
+and Wednesday deserves. Read the sign and the order of magnitude, not the
+decimals.
+
+**Suggestive, not established.** t=1.39 is short of the conventional t=2, so
 this could still be chance. What changed versus the earlier watchlist-only
 test is precision, not the answer: the mean barely moved (+0.80% → +0.82%)
 while the standard deviation fell from 9.94% to 3.58%. The earlier "26 of 46,
 coin flip" reading was **uninformative** — that test could not have detected a
-1%/month effect. This one could, and sees something around 0.8%/month.
+1%/month effect. This one could, and sees something around 0.7%/month.
 
-Two limits to keep attached. Reaching t=2 at this effect size needs ~77
-monthly observations (~6.4 years); there are 46. And the constituent list is
+Two limits to keep attached. Reaching t=2 at this effect size needs ~96
+monthly observations (~8 years); there are 46. And the constituent list is
 today's members, so dropped names (usually poor performers) are absent while
 recently added ones qualified after strong runs — survivorship pushes the
 result in both directions and the net is unknown.
@@ -121,6 +130,49 @@ presents a single name's momentum rank as a call.
   periods is far too small (6 observations) to validate the pattern itself
   — that comes from published research, not from this data, and the
   dashboard says so every place it appears.
+
+## Directional timing: five designs, tested and rejected
+
+Everything above was, until 2026-08-20, a *prior*: direction is not
+forecastable, so the codebase does not try. That is a comfortable thing to
+assert and an uncomfortable thing to check, because the check can come back
+the other way. This section is the check. Five candidate directional-timing
+signals were pre-specified from the empirical literature, implemented as
+standalone study scripts alongside `momentum_study.py`, and run. None
+cleared the bar.
+
+| signal | script | result |
+|---|---|---|
+| 52-week-high nearness | `high52_study.py` | inverts; momentum survives the joint test instead |
+| Volume-confirmed price shocks | `shock_study.py` | powered null at 2.5σ and 3.0σ |
+| Calendar windows (TOM / FOMC / payrolls) | `calendar_study.py` | null; turn-of-month is placebo-equivalent |
+| Volatility-managed sizing | `volmanaged_study.py` | best survivor, t=1.93 — and it never calls direction |
+| Insider Form 4 purchases | `insider_study.py` | right-signed at one month, underpowered on large caps |
+
+Every script prints its own **minimum detectable effect**, because "found
+nothing" and "could not have found anything" are different sentences and
+only one of them is evidence.
+
+### 52-week-high nearness inverts
+
+George & Hwang (2004) report that nearness to the 52-week high predicts
+returns and *subsumes* Jegadeesh-Titman momentum in a joint test. On the
+pinned S&P 500 cross-section both halves come out backwards. Nearness is
+negative in every construction tried (intraday vs closing highs, windows
+aligned with momentum's skipped month or not, 1- and 3-month horizons) and
+never once positive. In the nested double sort it is momentum that survives
+— +0.90%/mo at t=+2.19, *better* than raw momentum's +0.69% at t=+1.39,
+because neutralizing nearness strips a noisy component out of the sort
+(monthly sd falls 3.36% → 2.79%). That is variance reduction, not new alpha,
+and it is the one practical thing this study produced.
+
+Held against equal momentum, nearness runs to −1.36%/mo at t=−3.01 in the
+window-aligned form: at equal 12-month momentum, the names furthest *below*
+their own 52-week high outperformed. Read economically that is a
+drawdown-rebound effect, and the sample is one drawdown-and-recovery cycle
+(2022 down, 2023-25 up). It is exactly the shape a single cycle
+manufactures, it is one cell out of 24 across the robustness variants, and
+it is not adopted.
 
 ## Why the split holds
 

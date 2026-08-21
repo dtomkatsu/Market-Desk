@@ -94,6 +94,15 @@
   fallback when Yahoo throttles 500 consecutive info calls. Without it a bad
   fetch day silently reverts every percentile to watchlist-relative, changing
   what the numbers mean with no visible signal.
+- **The prediction registry is CI-owned. Never run `predictions_log.py` or
+  `predictions_grade.py` locally.** The daily workflow runs both and commits
+  `history/predictions.jsonl` and `history/predictions_grades.jsonl` to main.
+  A local run appends claims or grades that CI does not have, and the next CI
+  commit collides with them — forking the very record whose value is that it
+  is append-only and made ex ante. Read the files locally; let CI write them.
+  The same reason `scripts/predictions_grade.py` rewrites the scoreboard in
+  PREDICTIONS.md between markers rather than by hand: the block is a pure
+  function of the two JSONL files, so it can never drift from the record.
 - **`docs/data/` is generated, not committed.** It is in `.gitignore`. If you
   find yourself committing payloads, something is wrong.
 - **Do NOT hand-bump `?v=` on `styles.css` / `app.js`.** The global

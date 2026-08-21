@@ -174,6 +174,26 @@ drawdown-rebound effect, and the sample is one drawdown-and-recovery cycle
 manufactures, it is one cell out of 24 across the robustness variants, and
 it is not adopted.
 
+### Unscheduled shocks do not drift
+
+The non-earnings analogue of post-earnings drift: a stock moves 3σ on no
+scheduled catalyst — does it continue, or give it back? Pritamani & Singal
+(2001) and Gutierrez & Kelley (2008) say the answer turns on volume, with
+high-volume moves continuing and low-volume moves reversing. Earnings
+sessions are excluded through `announcement_date`, so the after-close rule
+that owns the reaction session owns the blackout too; names whose earnings
+dates fail to fetch are **dropped rather than included unscreened**, because
+an unscreened name silently readmits precisely the events the study exists
+to exclude.
+
+4,099 shocks at 3σ and 6,792 at 2.5σ, across 499 names. The largest |t| in
+any of the eighteen cells is 1.23. This is a powered null, not a shrug: the
+design could resolve roughly 0.8% over ten sessions and 1.1% over
+twenty-one, against published effects of 2-3% over twenty. And the volume
+hypothesis fails *directionally* as well as statistically — the
+volume-confirmed bucket, predicted to continue, carries the more negative
+point estimate at both 10 and 21 days.
+
 ## Why the split holds
 
 This is not an arbitrary line. Directional edges that are easy to see get

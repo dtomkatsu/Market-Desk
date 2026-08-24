@@ -15,7 +15,7 @@ on.
 
 Maintained automatically: `predictions_log.py` writes each day's claims to `history/predictions.jsonl` before their windows open; `predictions_grade.py` scores them when the windows close. No backtest below — only claims made on the record and what then happened.
 
-*No claims have matured yet; 54 pending.*
+*No claims have matured yet; 110 pending.*
 <!-- prediction-registry:end -->
 
 ## Predictions that are genuinely defensible

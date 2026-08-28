@@ -1,0 +1,4 @@
+{"id": "event:NVDA:2026-08-21:0:2026-08-26", "kind": "event", "realized": 0.0873795275466771, "ratio": 1.9051813308157597, "beat_baseline": true}
+{"id": "event:NVDA:2026-08-24:0:2026-08-26", "kind": "event", "realized": 0.0873795275466771, "ratio": 1.9051887115682804, "beat_baseline": true}
+{"id": "event:NVDA:2026-08-25:0:2026-08-26", "kind": "event", "realized": 0.0873795275466771, "ratio": 1.9051818159954401, "beat_baseline": true}
+{"id": "event:NVDA:2026-08-26:0:2026-08-26", "kind": "event", "realized": 0.0873795275466771, "ratio": 1.9051768100572812, "beat_baseline": true}

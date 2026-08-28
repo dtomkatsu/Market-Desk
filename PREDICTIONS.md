@@ -15,7 +15,11 @@ on.
 
 Maintained automatically: `predictions_log.py` writes each day's claims to `history/predictions.jsonl` before their windows open; `predictions_grade.py` scores them when the windows close. No backtest below — only claims made on the record and what then happened.
 
-*No claims have matured yet; 224 pending.*
+| claim type | graded | result | claimed |
+|---|---|---|---|
+| event size | 4 | median realized/typical 1.91; 100% beat ordinary | ~1.00; most |
+
+*278 claims pending. Dates and sessions are approximations that grade against the registry, so this record understates rather than flatters.*
 <!-- prediction-registry:end -->
 
 ## Predictions that are genuinely defensible

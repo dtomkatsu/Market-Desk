@@ -17,12 +17,12 @@ Maintained automatically: `predictions_log.py` writes each day's claims to `hist
 
 | claim type | graded | result | claimed |
 |---|---|---|---|
-| range (80% bands) | 280 | 94% inside | 80% |
-| book (80% bands) | 7 | 57% inside | 80% |
+| range (80% bands) | 320 | 93% inside | 80% |
+| book (80% bands) | 8 | 62% inside | 80% |
 | event size | 13 | median realized/typical 0.28; 100% beat ordinary | ~1.00; most |
-| regime persistence | 95 | 52% correct | >50% |
+| regime persistence | 107 | 51% correct | >50% |
 
-*206 claims pending. Dates and sessions are approximations that grade against the registry, so this record understates rather than flatters.*
+*199 claims pending. Dates and sessions are approximations that grade against the registry, so this record understates rather than flatters.*
 <!-- prediction-registry:end -->
 
 ## Predictions that are genuinely defensible

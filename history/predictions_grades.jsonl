@@ -1249,3 +1249,14 @@
 {"id": "range:XLV:2026-09-29:5", "kind": "range", "realized": 167.08999633789062, "hit": true, "coverage": 0.8}
 {"id": "regime:XLV:2026-09-29:5", "kind": "regime", "realized": 0.02132021016071106, "exceeded": true, "correct": false}
 {"id": "range:XYL:2026-09-29:5", "kind": "range", "realized": 104.56999969482422, "hit": true, "coverage": 0.8}
+{"id": "range:ALAB:2026-09-29:5", "kind": "range", "realized": 389.79998779296875, "hit": true, "coverage": 0.8}
+{"id": "range:CMPS:2026-09-29:5", "kind": "range", "realized": 11.5600004196167, "hit": false, "coverage": 0.8}
+{"id": "range:FHB:2026-09-29:5", "kind": "range", "realized": 25.0, "hit": true, "coverage": 0.8}
+{"id": "range:GHRS:2026-09-29:5", "kind": "range", "realized": 21.520000457763672, "hit": false, "coverage": 0.8}
+{"id": "range:GOOG:2026-09-29:5", "kind": "range", "realized": 344.5899963378906, "hit": true, "coverage": 0.8}
+{"id": "range:IOT:2026-09-29:5", "kind": "range", "realized": 41.7400016784668, "hit": true, "coverage": 0.8}
+{"id": "range:JETS:2026-09-29:5", "kind": "range", "realized": 28.100000381469727, "hit": true, "coverage": 0.8}
+{"id": "range:META:2026-09-29:5", "kind": "range", "realized": 738.8800048828125, "hit": true, "coverage": 0.8}
+{"id": "range:NXT:2026-09-29:5", "kind": "range", "realized": 88.08999633789062, "hit": false, "coverage": 0.8}
+{"id": "range:XLRE:2026-09-29:5", "kind": "range", "realized": 41.099998474121094, "hit": true, "coverage": 0.8}
+{"id": "book:BOOK:2026-09-29:5", "kind": "book", "realized": 0.003761591650047557, "hit": true, "coverage": 0.8}

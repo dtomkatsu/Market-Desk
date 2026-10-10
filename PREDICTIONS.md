@@ -22,7 +22,7 @@ Maintained automatically: `predictions_log.py` writes each day's claims to `hist
 | event size | 29 | median realized/typical 0.69; 100% beat ordinary | ~1.00; most |
 | regime persistence | 239 | 44% correct | >50% |
 
-*194 claims pending. Dates and sessions are approximations that grade against the registry, so this record understates rather than flatters.*
+*245 claims pending. Dates and sessions are approximations that grade against the registry, so this record understates rather than flatters.*
 <!-- prediction-registry:end -->
 
 ## Predictions that are genuinely defensible

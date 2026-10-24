@@ -18,3 +18,15 @@ config/*.local.yml
 # Cached third-party lookups (earnings dates). Slow to fetch, cheap to
 # rebuild, and stale the moment a company reschedules — never committed.
 .cache/
+
+# credentials — never commit these (added 2026-10-23)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+token.json
+credentials.json
+client_secret*.json
+service-account*.json
+*_api_key
